@@ -220,6 +220,8 @@ Each option should include a short explanation, for example:
 - `standard review`: faster
 - `strict review`: safer
 
+By default, the workflow should remember the most recently confirmed preference set. If the user says "just for this task" or "only this time", treat it as a session-only override instead of replacing the long-term default.
+
 ### 4. Give it a real task
 
 After onboarding, provide the real task and let the workflow start routing and progressing it.
@@ -294,25 +296,6 @@ Start here:
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)
 - [Plugin Structure](./docs/plugin-structure.md)
-
----
-
-## Current Scope
-
-Implemented:
-
-- spawn executor flow
-- serve executor flow
-- batch, probe, polling, and summary features
-- hook-driven routing and stage scoping
-- delegated Codex handling path
-- cost tracking, timeout unification, resume support, and NDJSON logging
-
-Still worth hardening:
-
-- automated tests for `resume`, hook pipeline behavior, logger output, and cost summaries
-- more polished screenshots and marketplace-facing copy
-- a first-user remote installer
 
 ---
 

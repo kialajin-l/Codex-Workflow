@@ -222,6 +222,8 @@ macOS / Linux:
 - `普通 review`：更快
 - `严格 review`：更稳
 
+默认情况下，workflow 应记住你最近一次确认的偏好；如果你说“这次先这样”或“只在这个任务里这样”，则只对当前会话临时生效。
+
 ### 4. 提交真实任务
 
 完成引导后，直接给出你的真实目标，让 workflow 开始拆分和推进。
@@ -296,25 +298,6 @@ codex-workflow/
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)
 - [Plugin Structure](./docs/plugin-structure.md)
-
----
-
-## 当前范围
-
-已实现：
-
-- spawn executor 流程
-- serve executor 流程
-- batch、probe、polling、summary
-- hook 驱动的路由和阶段作用域
-- delegated Codex 处理路径
-- 成本跟踪、超时统一、resume 和 NDJSON 日志
-
-还值得继续补强：
-
-- `resume`、hook pipeline、logger、cost summary 的自动化测试
-- 更适合 marketplace 展示的截图和文案
-- 面向首次用户的远程安装器
 
 ---
 

@@ -47,6 +47,54 @@ If the user has not chosen a mode yet:
 - keep review enabled
 - prefer explicit goals for safety
 
+## Preference Persistence
+
+`/deepwork` should remember the user's most recent confirmed defaults.
+
+Store these preference fields as the workflow default set:
+
+- `execution_mode`: `codex-first` | `cli-first` | `hybrid`
+- `goal_style`: `explicit-goals` | `proactive-decomposition`
+- `review_mode`: `standard-review` | `strict-review`
+
+Expected behavior:
+
+1. first-time user: ask all three
+2. returning user: restate saved defaults first
+3. if the user says "continue" or equivalent, reuse saved defaults
+4. if the user says "switch" or changes one item, update only the changed field unless they clearly want a full reset
+
+Use this style of recap:
+
+- "Current default is Hybrid + proactive decomposition + standard review. Continue or switch?"
+
+## Session Override Rules
+
+Not every change should overwrite the long-term default.
+
+Treat changes as **session-only overrides** when the user says things like:
+
+- "for this task"
+- "just this time"
+- "only for this session"
+- "temporarily"
+
+In those cases:
+
+- apply the override for the current `/deepwork` run
+- do not replace the saved default set
+- mention that the change is temporary
+
+If the user explicitly says to remember it, update the saved defaults.
+
+## Where Preferences Belong
+
+Preference memory should conceptually live in the workflow user config area:
+
+- `~/.codex/codex-workflow/`
+
+If a future implementation persists them to disk, keep them in that scope rather than mixing them into README-only behavior.
+
 ## What `/deepwork` Should Do
 
 After onboarding:
