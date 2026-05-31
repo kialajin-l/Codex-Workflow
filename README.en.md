@@ -64,6 +64,25 @@ Execution flow:
 
 ---
 
+## How To Use It
+
+The public chat entrypoint for ordinary users is:
+
+- `/deepwork`
+
+After installation, users should activate the workflow inside the Codex chat UI with `/deepwork`.  
+CLI commands remain available for advanced users, debugging, and plugin development, but they are not the primary user path.
+
+Chat-first behavior is documented here:
+
+- [Chat-First Workflow](./docs/chat-first-workflow.md)
+
+Advanced terminal usage is documented here:
+
+- [Advanced CLI](./docs/advanced-cli.md)
+
+---
+
 ## Installation
 
 There are two separate steps:
@@ -170,86 +189,46 @@ macOS / Linux:
 
 ## Quick Start
 
-### 1. Initialize runtime state
+### 1. Install it
 
-```bash
-node dist/index.js init
+Choose one:
+
+- local repository install
+- remote install script
+
+### 2. Enter this in Codex chat
+
+```text
+/deepwork
 ```
 
-This creates `.workflow-state/` for task, batch, probe, and log files.
+### 3. Complete the first-run onboarding
 
-If you installed with the remote installer, run:
+On first entry, the workflow should ask about:
 
-```bash
-cwf init
-```
+- `Codex-first`, `CLI-first`, or `Hybrid`
+- explicit goal-driven mode vs more autonomous decomposition
+- normal review vs stricter review gates
 
-### 2. Probe your executors
+### 4. Give it a real task
 
-```bash
-node dist/index.js probe
-node dist/index.js probe --executor opencode-serve --auto
-```
-
-Probe before real batch execution so executor behavior is known-good.
-
-Remote-install equivalents:
-
-```bash
-cwf probe
-cwf probe --executor opencode-serve --auto
-```
-
-### 3. Run a batch
-
-```bash
-node dist/index.js run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
-
-Outputs:
-
-- `stdout`: full batch JSON
-- `stderr`: human-readable summary with completion count, blocked count, elapsed time, and estimated cost
-
-Remote-install equivalent:
-
-```bash
-cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
-
-### 4. Resume unfinished work
-
-```bash
-node dist/index.js run-batch --resume <batch-id>
-```
-
-Only tasks that are neither `completed` nor `blocked` are retried.
-
-Remote-install equivalent:
-
-```bash
-cwf run-batch --resume <batch-id>
-```
+After onboarding, provide the real task and let the workflow start routing and progressing it.
 
 ---
 
-## Common Commands
+## Advanced Commands
 
-| Command | Purpose |
-|------|------|
-| `node dist/index.js init` | Create `.workflow-state` |
-| `node dist/index.js run --goal "..."` | Run one task |
-| `node dist/index.js run-batch --goals "a,b,c"` | Run a batch |
-| `node dist/index.js run-batch --goals "..." --auto-route` | Run with profile routing |
-| `node dist/index.js run-batch --resume <batch-id>` | Resume a batch |
-| `node dist/index.js status --id <task-id>` | Show task status |
-| `node dist/index.js status --batch <batch-id>` | Show batch status |
-| `node dist/index.js probe --executor <name>` | Probe one executor |
-| `node dist/index.js workflow-save --name <name>` | Save current workflow preset |
-| `node dist/index.js workflow-load --name <name>` | Load a workflow preset |
-| `node dist/index.js workflow-list` | List presets |
+CLI commands are documented separately here:
 
-After remote installation, you can replace `node dist/index.js` with `cwf` for the commands above.
+- [Advanced CLI](./docs/advanced-cli.md)
+
+They are intended for:
+
+- runtime debugging
+- executor probing
+- preset save/load workflows
+- batch and task inspection
+- plugin development and maintenance
 
 ---
 
@@ -300,6 +279,8 @@ Recommended order:
 Start here:
 
 - [Getting Started](./docs/getting-started.md)
+- [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Advanced CLI](./docs/advanced-cli.md)
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)
 - [Plugin Structure](./docs/plugin-structure.md)

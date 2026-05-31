@@ -7,7 +7,7 @@
 如果你只想知道：
 
 - 怎么安装
-- 怎么跑第一个 batch
+- 怎么在对话中激活 workflow
 - 怎么看状态和日志
 - 中断以后怎么恢复
 
@@ -56,73 +56,49 @@ macOS / Linux 建议直接用：
 
 ---
 
-## 2. 初始化状态目录
+## 2. 在 Codex 对话中激活
 
-```bash
-node dist/index.js init
+```text
+/deepwork
 ```
 
-初始化后会创建：
+这是普通用户的主入口。
 
-- `.workflow-state/`
+进入后，workflow 应先问你几件事：
 
-后续 batch、task、probe、日志都会写在这里。
+- 偏向 `Codex-first`、`CLI-first` 还是 `Hybrid`
+- 希望显式 goal 驱动，还是更自主地自动拆分
+- 是否启用严格 review gate
 
-如果你走的是远程安装路线，对应命令是：
-
-```bash
-cwf init
-```
+完成这些选择后，再开始真正的任务。
 
 ---
 
-## 3. 检查 executor 是否可用
+## 3. 提供你的真实任务
 
-建议先跑探测命令：
+引导完成后，直接输入你的目标。
 
-```bash
-node dist/index.js probe
-node dist/index.js probe --executor opencode-serve --auto
-```
+例如：
 
-说明：
-
-- `probe`：检查某个 executor 能不能正常返回结果
-- `probe --auto`：连续跑 3 次 schema 检测，并把推荐的 `artifactMode` 写回配置
-
-如果你走的是远程安装路线，对应命令是：
-
-```bash
-cwf probe
-cwf probe --executor opencode-serve --auto
-```
+- “帮我拆解并推进这个登录模块重构”
+- “进入 deepwork，帮我把这个需求拆成可执行任务并开始推进”
 
 ---
 
-## 4. 运行第一个 batch
+## 4. 什么时候看 CLI
 
-```bash
-node dist/index.js run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
+大多数普通用户不需要直接看 CLI。
 
-这个命令会做几件事：
+CLI 更适合：
 
-1. 根据 `model-profiles.json` 自动分配任务角色和 executor
-2. 创建 task 状态文件
-3. 按 hook 和 preset 执行任务
-4. 输出 batch JSON
-5. 在 stderr 输出人类可读摘要
+- 调试 runtime
+- 手动探测 executor
+- 保存和切换 preset
+- 查看 batch / task 状态
 
-你会看到：
+CLI 参考：
 
-- `stdout`：完整 batch JSON
-- `stderr`：完成数、阻塞数、耗时、估算成本
-
-如果你走的是远程安装路线，对应命令是：
-
-```bash
-cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
+- [advanced-cli.md](./advanced-cli.md)
 
 ---
 
@@ -141,6 +117,13 @@ node dist/index.js status --batch <batch-id>
 - `completed`
 - `blocked`
 - `delegated_to_codex`
+
+如果你走的是远程安装路线，对应命令是：
+
+```bash
+cwf status --id <task-id>
+cwf status --batch <batch-id>
+```
 
 ---
 
@@ -230,5 +213,7 @@ cwf run-batch --resume <batch-id>
 如果你只是使用插件，到这里就可以开始用了。  
 如果你想自己改流程，继续读：
 
+- [chat-first-workflow.md](./chat-first-workflow.md)
+- [advanced-cli.md](./advanced-cli.md)
 - [customizing-workflows.md](./customizing-workflows.md)
 - [hooks-reference.md](./hooks-reference.md)

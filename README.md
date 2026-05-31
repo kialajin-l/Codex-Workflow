@@ -64,6 +64,25 @@ Codex Workflow 提供的就是这一层，不依赖额外的独立编排服务�
 
 ---
 
+## 使用方式
+
+普通用户的公开入口是：
+
+- `/deepwork`
+
+安装完成后，用户应该在 Codex 对话框里输入 `/deepwork` 来激活这套 workflow。  
+CLI 命令保留给高级玩家、调试和插件开发者使用，不是普通用户的主入口。
+
+对话入口的行为说明见：
+
+- [Chat-First Workflow](./docs/chat-first-workflow.md)
+
+CLI 命令和调试入口见：
+
+- [Advanced CLI](./docs/advanced-cli.md)
+
+---
+
 ## 安装方式
 
 这里要区分两件事：
@@ -172,86 +191,46 @@ macOS / Linux:
 
 ## 快速开始
 
-### 1. 初始化运行时状态
+### 1. 安装
 
-```bash
-node dist/index.js init
+任选一种方式：
+
+- clone 仓库后本地安装
+- 直接使用远程安装脚本
+
+### 2. 在 Codex 对话中输入
+
+```text
+/deepwork
 ```
 
-这会创建 `.workflow-state/`，用于保存 task、batch、probe 和日志文件。
+### 3. 完成首次引导
 
-如果你走的是远程安装脚本，则执行：
+首次进入后，workflow 应询问你：
 
-```bash
-cwf init
-```
+- 更偏向 `Codex-first`、`CLI-first` 还是 `Hybrid`
+- 希望显式 goal 驱动，还是让 workflow 更自主拆分
+- 是否启用更严格的 review gate
 
-### 2. 探测 executor
+### 4. 提交真实任务
 
-```bash
-node dist/index.js probe
-node dist/index.js probe --executor opencode-serve --auto
-```
-
-建议先 probe，再进行真实 batch 执行。
-
-远程安装后的等价命令：
-
-```bash
-cwf probe
-cwf probe --executor opencode-serve --auto
-```
-
-### 3. 跑一个 batch
-
-```bash
-node dist/index.js run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
-
-输出：
-
-- `stdout`：完整 batch JSON
-- `stderr`：人类可读摘要，包括完成数、阻塞数、耗时和估算成本
-
-远程安装后的等价命令：
-
-```bash
-cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
-```
-
-### 4. 恢复未完成 batch
-
-```bash
-node dist/index.js run-batch --resume <batch-id>
-```
-
-只有既不是 `completed` 也不是 `blocked` 的任务会被重跑。
-
-远程安装后的等价命令：
-
-```bash
-cwf run-batch --resume <batch-id>
-```
+完成引导后，直接给出你的真实目标，让 workflow 开始拆分和推进。
 
 ---
 
-## 常用命令
+## 高级命令
 
-| 命令 | 作用 |
-|------|------|
-| `node dist/index.js init` | 创建 `.workflow-state` |
-| `node dist/index.js run --goal "..."` | 执行单个任务 |
-| `node dist/index.js run-batch --goals "a,b,c"` | 执行 batch |
-| `node dist/index.js run-batch --goals "..." --auto-route` | 启用 profile 路由执行 |
-| `node dist/index.js run-batch --resume <batch-id>` | 续跑 batch |
-| `node dist/index.js status --id <task-id>` | 查看 task 状态 |
-| `node dist/index.js status --batch <batch-id>` | 查看 batch 状态 |
-| `node dist/index.js probe --executor <name>` | 探测 executor |
-| `node dist/index.js workflow-save --name <name>` | 保存当前 workflow preset |
-| `node dist/index.js workflow-load --name <name>` | 加载 workflow preset |
-| `node dist/index.js workflow-list` | 列出 preset |
+CLI 命令已经单独整理到：
 
-远程安装后，上面这些命令都可以把 `node dist/index.js` 替换成 `cwf`。
+- [Advanced CLI](./docs/advanced-cli.md)
+
+这些命令适合：
+
+- 调试 runtime
+- 手动探测 executor
+- 保存或切换 preset
+- 查看 batch / task 状态
+- 开发这个插件本身
 
 ---
 
@@ -302,6 +281,8 @@ codex-workflow/
 从这里开始读：
 
 - [Getting Started](./docs/getting-started.md)
+- [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Advanced CLI](./docs/advanced-cli.md)
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)
 - [Plugin Structure](./docs/plugin-structure.md)
