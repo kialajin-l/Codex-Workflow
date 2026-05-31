@@ -91,3 +91,15 @@ export const workflowPresetSchema = z.object({
   hooks: z.record(z.string(), hookConfigSchema),
   skills: z.record(z.string(), z.string()).optional(),
 });
+
+export const deepworkExecutionModeSchema = z.enum(["codex-first", "cli-first", "hybrid"]);
+export const deepworkGoalStyleSchema = z.enum(["explicit-goals", "proactive-decomposition"]);
+export const deepworkReviewModeSchema = z.enum(["standard-review", "strict-review"]);
+
+export const deepworkPreferencesSchema = z.object({
+  executionMode: deepworkExecutionModeSchema,
+  goalStyle: deepworkGoalStyleSchema,
+  reviewMode: deepworkReviewModeSchema,
+  updatedAt: z.string().datetime().optional(),
+  source: z.enum(["chat-confirmed", "cli"]).optional(),
+});

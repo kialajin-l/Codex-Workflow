@@ -184,3 +184,41 @@ export interface WorkflowPreset {
   hooks: Record<string, HookConfig>;
   skills?: Record<string, string>;
 }
+
+export type DeepworkExecutionMode = "codex-first" | "cli-first" | "hybrid";
+export type DeepworkGoalStyle = "explicit-goals" | "proactive-decomposition";
+export type DeepworkReviewMode = "standard-review" | "strict-review";
+
+export interface DeepworkPreferences {
+  executionMode: DeepworkExecutionMode;
+  goalStyle: DeepworkGoalStyle;
+  reviewMode: DeepworkReviewMode;
+  updatedAt?: string;
+  source?: "chat-confirmed" | "cli";
+}
+
+export interface DeepworkSessionConfig {
+  executionMode: DeepworkExecutionMode;
+  goalStyle: DeepworkGoalStyle;
+  reviewMode: DeepworkReviewMode;
+  persisted: boolean;
+  temporaryOverride: boolean;
+}
+
+export interface DeepworkOptionSet {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface DeepworkOnboardingResponse {
+  entry: "/deepwork";
+  status: "needs-onboarding" | "ready";
+  message: string;
+  preferences: DeepworkSessionConfig;
+  options?: {
+    executionModes: DeepworkOptionSet[];
+    goalStyles: DeepworkOptionSet[];
+    reviewModes: DeepworkOptionSet[];
+  };
+}

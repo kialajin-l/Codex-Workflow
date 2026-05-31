@@ -10,6 +10,7 @@ import { ensureWorkflowConfigDirs, listWorkflowPresets, loadWorkflowPreset, save
 import { loadHooks } from "./hooks.js";
 import { summarizeBatch } from "./summarize.js";
 import { handleHello } from "./routes/hello.js";
+import { createDeepworkResponse } from "./deepwork.js";
 import type { AutoProbeResult, ProbeResult, WorkerResult, WorkflowBatchResult, WorkflowTask } from "./types.js";
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -303,6 +304,17 @@ async function demoPair(rootDir: string, mode: "serial" | "parallel"): Promise<v
   console.log(JSON.stringify(batch, null, 2));
 }
 
+async function deepworkEntry(args: Record<string, string>): Promise<void> {
+  const response = await createDeepworkResponse({
+    executionMode: args["execution-mode"],
+    goalStyle: args["goal-style"],
+    reviewMode: args["review-mode"],
+    remember: args.remember === "true" || args.remember === "1" || "remember" in args,
+    temporary: args.temporary === "true" || args.temporary === "1" || "temporary" in args,
+  });
+  console.log(JSON.stringify(response, null, 2));
+}
+
 async function completeDelegatedBatch(rootDir: string, args: Record<string, string>): Promise<void> {
   const batchId = args.batch;
   if (!batchId) {
@@ -422,6 +434,9 @@ async function main(): Promise<void> {
     case "demo-parallel":
       await demoPair(rootDir, "parallel");
       return;
+    case "deepwork":
+      await deepworkEntry(args);
+      return;
     default:
       console.log("Usage:");
       console.log("  node dist/index.js init");
@@ -437,6 +452,7 @@ async function main(): Promise<void> {
       console.log("  node dist/index.js workflow-load --name <name>");
       console.log("  node dist/index.js workflow-list");
       console.log("  node dist/index.js workflow-show --name <name>");
+      console.log("  node dist/index.js deepwork [--execution-mode codex-first|cli-first|hybrid] [--goal-style explicit-goals|proactive-decomposition] [--review-mode standard-review|strict-review] [--remember] [--temporary]");
       console.log("  node dist/index.js complete-delegated --batch <batch-id> [--stdout <text>] [--status ok|failed]");
       console.log("  node dist/index.js demo-subagent");
       console.log("  node dist/index.js demo-serial-pair (runs 3 goals: task A, task B, task C)");
