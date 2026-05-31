@@ -29,9 +29,9 @@ The first interaction should help decide:
 
 Use natural chat prompts such as:
 
-- "Do you want a Codex-first, CLI-first, or hybrid workflow?"
-- "Should I wait for explicit goals, or proactively decompose the task?"
-- "Do you want strict review gates before tasks count as complete?"
+- "Choose a workflow mode: Codex-first (stay mostly inside Codex), CLI-first (prefer external coding tools), or Hybrid (route by task type)."
+- "How should I start work: explicit goals first (you give clear targets before execution) or proactive decomposition (I break the task down and start pushing it forward)?"
+- "How strict should review be: standard review (faster progress) or strict review gate (more checks before tasks count as done)?"
 
 ## Operating Modes
 
@@ -55,6 +55,8 @@ After onboarding:
 2. summarize how tasks will be routed
 3. ask for the first real task or goal set
 4. begin the workflow in chat
+
+When presenting choices, always include a one-line explanation for each option so the user can decide quickly without reading long docs.
 
 For ordinary users, keep the workflow chat-first.
 

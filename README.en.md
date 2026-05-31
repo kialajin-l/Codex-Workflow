@@ -210,6 +210,16 @@ On first entry, the workflow should ask about:
 - explicit goal-driven mode vs more autonomous decomposition
 - normal review vs stricter review gates
 
+Each option should include a short explanation, for example:
+
+- `Codex-first`: stay mostly inside Codex
+- `CLI-first`: prefer external CLI workers
+- `Hybrid`: route by task type automatically
+- `explicit goals`: wait for clear user goals before execution
+- `autonomous decomposition`: break tasks down and start pushing forward
+- `standard review`: faster
+- `strict review`: safer
+
 ### 4. Give it a real task
 
 After onboarding, provide the real task and let the workflow start routing and progressing it.

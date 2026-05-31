@@ -212,6 +212,16 @@ macOS / Linux:
 - 希望显式 goal 驱动，还是让 workflow 更自主拆分
 - 是否启用更严格的 review gate
 
+每个选项都会带一句简短说明，例如：
+
+- `Codex-first`：尽量留在 Codex 内推进
+- `CLI-first`：优先调用外部 CLI worker
+- `Hybrid`：按任务类型自动分流
+- `显式 goal 驱动`：先给清晰目标再执行
+- `更自主拆分`：由 workflow 先拆任务再推进
+- `普通 review`：更快
+- `严格 review`：更稳
+
 ### 4. 提交真实任务
 
 完成引导后，直接给出你的真实目标，让 workflow 开始拆分和推进。
