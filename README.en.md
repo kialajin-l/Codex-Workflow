@@ -71,8 +71,8 @@ There are two separate steps:
 1. **Get the repository locally**
 2. **Install the current repository contents into your local Codex home**
 
-The current `npm run install-plugin` only covers step 2.  
-That means a first-time GitHub visitor **cannot install this project without cloning it first**.
+The current `npm run install-plugin` only covers step 2, meaning installation from a local checked-out repository.  
+If users do not want to clone first, they can use the remote installer below.
 
 ### Standard local install flow
 
@@ -144,6 +144,28 @@ macOS / Linux:
 
 - `~/.codex/codex-workflow/bin/cwf`
 
+### How to run it after installation
+
+If you installed through the remote scripts, use the wrapper directly:
+
+Windows PowerShell:
+
+```powershell
+& $HOME\.codex\codex-workflow\bin\cwf.ps1 init
+```
+
+Windows CMD:
+
+```bat
+%USERPROFILE%\.codex\codex-workflow\bin\cwf.cmd init
+```
+
+macOS / Linux:
+
+```bash
+~/.codex/codex-workflow/bin/cwf init
+```
+
 ---
 
 ## Quick Start
@@ -156,6 +178,12 @@ node dist/index.js init
 
 This creates `.workflow-state/` for task, batch, probe, and log files.
 
+If you installed with the remote installer, run:
+
+```bash
+cwf init
+```
+
 ### 2. Probe your executors
 
 ```bash
@@ -164,6 +192,13 @@ node dist/index.js probe --executor opencode-serve --auto
 ```
 
 Probe before real batch execution so executor behavior is known-good.
+
+Remote-install equivalents:
+
+```bash
+cwf probe
+cwf probe --executor opencode-serve --auto
+```
 
 ### 3. Run a batch
 
@@ -176,6 +211,12 @@ Outputs:
 - `stdout`: full batch JSON
 - `stderr`: human-readable summary with completion count, blocked count, elapsed time, and estimated cost
 
+Remote-install equivalent:
+
+```bash
+cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
+```
+
 ### 4. Resume unfinished work
 
 ```bash
@@ -183,6 +224,12 @@ node dist/index.js run-batch --resume <batch-id>
 ```
 
 Only tasks that are neither `completed` nor `blocked` are retried.
+
+Remote-install equivalent:
+
+```bash
+cwf run-batch --resume <batch-id>
+```
 
 ---
 
@@ -201,6 +248,8 @@ Only tasks that are neither `completed` nor `blocked` are retried.
 | `node dist/index.js workflow-save --name <name>` | Save current workflow preset |
 | `node dist/index.js workflow-load --name <name>` | Load a workflow preset |
 | `node dist/index.js workflow-list` | List presets |
+
+After remote installation, you can replace `node dist/index.js` with `cwf` for the commands above.
 
 ---
 

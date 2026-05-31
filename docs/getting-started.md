@@ -15,7 +15,11 @@
 
 ---
 
-## 1. 安装依赖
+## 1. 安装方式
+
+你可以用两种方式开始：
+
+### 方式 A：从源码仓库运行
 
 在项目根目录执行：
 
@@ -28,6 +32,26 @@ npm run build
 
 ```bash
 npm run install-plugin
+```
+
+### 方式 B：远程安装后直接运行
+
+PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/kialajin-l/Codex-Workflow/main/install.ps1 | iex
+```
+
+安装完成后，Windows 建议直接用：
+
+```powershell
+& $HOME\.codex\codex-workflow\bin\cwf.ps1 init
+```
+
+macOS / Linux 建议直接用：
+
+```bash
+~/.codex/codex-workflow/bin/cwf init
 ```
 
 ---
@@ -44,6 +68,12 @@ node dist/index.js init
 
 后续 batch、task、probe、日志都会写在这里。
 
+如果你走的是远程安装路线，对应命令是：
+
+```bash
+cwf init
+```
+
 ---
 
 ## 3. 检查 executor 是否可用
@@ -59,6 +89,13 @@ node dist/index.js probe --executor opencode-serve --auto
 
 - `probe`：检查某个 executor 能不能正常返回结果
 - `probe --auto`：连续跑 3 次 schema 检测，并把推荐的 `artifactMode` 写回配置
+
+如果你走的是远程安装路线，对应命令是：
+
+```bash
+cwf probe
+cwf probe --executor opencode-serve --auto
+```
 
 ---
 
@@ -80,6 +117,12 @@ node dist/index.js run-batch --goals "Implement hello,Review login" --mode paral
 
 - `stdout`：完整 batch JSON
 - `stderr`：完成数、阻塞数、耗时、估算成本
+
+如果你走的是远程安装路线，对应命令是：
+
+```bash
+cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
+```
 
 ---
 
@@ -134,6 +177,12 @@ node dist/index.js run-batch --resume <batch-id>
 - 已经 `completed` 的 task 会跳过
 - 已经 `blocked` 的 task 会跳过
 - 只有未完成 task 会重跑
+
+如果你走的是远程安装路线，对应命令是：
+
+```bash
+cwf run-batch --resume <batch-id>
+```
 
 ---
 

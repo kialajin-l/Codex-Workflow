@@ -71,8 +71,8 @@ Codex Workflow 提供的就是这一层，不依赖额外的独立编排服务�
 1. **获取仓库源码**
 2. **把当前仓库内容安装到本地 Codex 目录**
 
-当前的 `npm run install-plugin` 属于第 2 种，不是远程一键安装器。  
-也就是说，用户第一次在 GitHub 页面看到这个项目时，**不能直接跳过 clone 就运行它**。
+当前的 `npm run install-plugin` 属于第 2 种，也就是“基于本地源码仓库的安装”。  
+如果用户不想先 clone，也可以直接使用下面的远程安装脚本。
 
 ### 标准本地安装流程
 
@@ -146,6 +146,28 @@ macOS / Linux:
 
 - `~/.codex/codex-workflow/bin/cwf`
 
+### 安装后怎么执行
+
+如果你是通过远程安装脚本安装的，建议直接使用 wrapper：
+
+Windows PowerShell:
+
+```powershell
+& $HOME\.codex\codex-workflow\bin\cwf.ps1 init
+```
+
+Windows CMD:
+
+```bat
+%USERPROFILE%\.codex\codex-workflow\bin\cwf.cmd init
+```
+
+macOS / Linux:
+
+```bash
+~/.codex/codex-workflow/bin/cwf init
+```
+
 ---
 
 ## 快速开始
@@ -158,6 +180,12 @@ node dist/index.js init
 
 这会创建 `.workflow-state/`，用于保存 task、batch、probe 和日志文件。
 
+如果你走的是远程安装脚本，则执行：
+
+```bash
+cwf init
+```
+
 ### 2. 探测 executor
 
 ```bash
@@ -166,6 +194,13 @@ node dist/index.js probe --executor opencode-serve --auto
 ```
 
 建议先 probe，再进行真实 batch 执行。
+
+远程安装后的等价命令：
+
+```bash
+cwf probe
+cwf probe --executor opencode-serve --auto
+```
 
 ### 3. 跑一个 batch
 
@@ -178,6 +213,12 @@ node dist/index.js run-batch --goals "Implement hello,Review login" --mode paral
 - `stdout`：完整 batch JSON
 - `stderr`：人类可读摘要，包括完成数、阻塞数、耗时和估算成本
 
+远程安装后的等价命令：
+
+```bash
+cwf run-batch --goals "Implement hello,Review login" --mode parallel --auto-route
+```
+
 ### 4. 恢复未完成 batch
 
 ```bash
@@ -185,6 +226,12 @@ node dist/index.js run-batch --resume <batch-id>
 ```
 
 只有既不是 `completed` 也不是 `blocked` 的任务会被重跑。
+
+远程安装后的等价命令：
+
+```bash
+cwf run-batch --resume <batch-id>
+```
 
 ---
 
@@ -203,6 +250,8 @@ node dist/index.js run-batch --resume <batch-id>
 | `node dist/index.js workflow-save --name <name>` | 保存当前 workflow preset |
 | `node dist/index.js workflow-load --name <name>` | 加载 workflow preset |
 | `node dist/index.js workflow-list` | 列出 preset |
+
+远程安装后，上面这些命令都可以把 `node dist/index.js` 替换成 `cwf`。
 
 ---
 
