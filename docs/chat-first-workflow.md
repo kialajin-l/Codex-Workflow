@@ -169,6 +169,10 @@
 
 后续如果真正做落盘，可独立成偏好文件，而不要和 task state 或 batch state 混写。
 
+详细的实现导向规则见：
+
+- [Preference Persistence](./preference-persistence.md)
+
 ---
 
 ## 普通用户与高级用户边界

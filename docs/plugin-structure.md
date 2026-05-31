@@ -41,6 +41,10 @@
 - 提供 workflow preset
 - 提供配套 agent 资产
 
+用户级偏好如果后续实现落盘，建议放在：
+
+- `~/.codex/codex-workflow/preferences.json`
+
 ### Runtime 层
 
 - [`src/`](../src/)

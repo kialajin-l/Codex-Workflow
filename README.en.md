@@ -76,6 +76,7 @@ CLI commands remain available for advanced users, debugging, and plugin developm
 Chat-first behavior is documented here:
 
 - [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Preference Persistence](./docs/preference-persistence.md)
 
 Advanced terminal usage is documented here:
 
@@ -292,6 +293,7 @@ Start here:
 
 - [Getting Started](./docs/getting-started.md)
 - [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Preference Persistence](./docs/preference-persistence.md)
 - [Advanced CLI](./docs/advanced-cli.md)
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)

@@ -76,6 +76,7 @@ CLI 命令保留给高级玩家、调试和插件开发者使用，不是普通�
 对话入口的行为说明见：
 
 - [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Preference Persistence](./docs/preference-persistence.md)
 
 CLI 命令和调试入口见：
 
@@ -294,6 +295,7 @@ codex-workflow/
 
 - [Getting Started](./docs/getting-started.md)
 - [Chat-First Workflow](./docs/chat-first-workflow.md)
+- [Preference Persistence](./docs/preference-persistence.md)
 - [Advanced CLI](./docs/advanced-cli.md)
 - [Customizing Workflows](./docs/customizing-workflows.md)
 - [Hooks Reference](./docs/hooks-reference.md)
