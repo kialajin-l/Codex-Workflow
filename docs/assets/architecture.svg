@@ -1,0 +1,40 @@
+<svg width="1600" height="960" viewBox="0 0 1600 960" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="960" fill="#08110F"/>
+  <text x="120" y="120" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Codex Workflow Architecture</text>
+  <text x="120" y="168" fill="#9FD7CD" font-family="Segoe UI, Arial, sans-serif" font-size="24">Plugin shell + runtime configs + workflow engine + persisted state</text>
+
+  <rect x="120" y="240" width="340" height="180" rx="28" fill="#0D1F1B" stroke="#1D574D"/>
+  <text x="158" y="298" fill="#A7F3E8" font-family="Segoe UI, Arial, sans-serif" font-size="24" letter-spacing="0.18em">PLUGIN LAYER</text>
+  <text x="158" y="346" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">.codex-plugin</text>
+  <text x="158" y="388" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">plugin.json</text>
+  <text x="158" y="420" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">.mcp.json</text>
+
+  <rect x="560" y="240" width="480" height="180" rx="28" fill="#0D1F1B" stroke="#1D574D"/>
+  <text x="598" y="298" fill="#A7F3E8" font-family="Segoe UI, Arial, sans-serif" font-size="24" letter-spacing="0.18em">RUNTIME CONFIG</text>
+  <text x="598" y="346" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">workflow.config.json</text>
+  <text x="598" y="388" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">model-profiles.json</text>
+  <text x="598" y="420" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">hooks / skills / workflows presets</text>
+
+  <rect x="1140" y="240" width="340" height="180" rx="28" fill="#0D1F1B" stroke="#1D574D"/>
+  <text x="1178" y="298" fill="#A7F3E8" font-family="Segoe UI, Arial, sans-serif" font-size="24" letter-spacing="0.18em">INSTALLER</text>
+  <text x="1178" y="346" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">install.js</text>
+  <text x="1178" y="388" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">syncs plugin assets into</text>
+  <text x="1178" y="420" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">~/.codex/codex-workflow</text>
+
+  <rect x="220" y="550" width="1160" height="240" rx="30" fill="#0A1715" stroke="#23675A"/>
+  <text x="264" y="610" fill="#A7F3E8" font-family="Segoe UI, Arial, sans-serif" font-size="26" letter-spacing="0.18em">WORKFLOW ENGINE</text>
+  <text x="264" y="664" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">src/index.ts → src/workflow.ts → src/executor.ts</text>
+  <text x="264" y="714" fill="#C3EDE5" font-family="Segoe UI, Arial, sans-serif" font-size="22">batch routing · hook injection · executor dispatch · review · resume · cost · structured logs</text>
+
+  <rect x="264" y="734" width="220" height="28" rx="14" fill="#163F38"/>
+  <rect x="512" y="734" width="220" height="28" rx="14" fill="#163F38"/>
+  <rect x="760" y="734" width="220" height="28" rx="14" fill="#163F38"/>
+  <rect x="1008" y="734" width="220" height="28" rx="14" fill="#163F38"/>
+
+  <path d="M460 330H560" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round"/>
+  <path d="M1040 330H1140" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round"/>
+  <path d="M800 420V550" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round"/>
+
+  <rect x="120" y="836" width="520" height="64" rx="20" fill="#102823" stroke="#1D574D"/>
+  <text x="156" y="878" fill="#D9FAF4" font-family="Segoe UI, Arial, sans-serif" font-size="24">Persisted state: .workflow-state / batches / task json / daily ndjson logs</text>
+</svg>

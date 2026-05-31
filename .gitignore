@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Runtime state
+.workflow-state/
+
+# Local env / caches
+.DS_Store
+Thumbs.db
+*.log
+opencode.json
+
+# Temporary workflow snapshots
+temp-before.json
+temp-repo-before.json
+workflow.config.backup.json
+workflow.config.fallback-test.json
+workflow.config.temp-broken.json
+
+# Local generated demo / scratch artifacts
+artifact.html
+arch.html
+clock.html
+direct.html
+glance.html
+hello.html
+index.html
+result.html
+short-artifact.html
+short-direct-artifact.html
+short.html
+status.html
+task-a.html
+task-b.html
+task-b.txt
+task-c.html
+session-*.js

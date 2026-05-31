@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex Workflow Runtime Showcase</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap");
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Inter", sans-serif;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(45, 212, 191, 0.18), transparent 28%),
+      radial-gradient(circle at 86% 18%, rgba(153, 246, 228, 0.14), transparent 24%),
+      linear-gradient(180deg, #07110f 0%, #0b1715 100%);
+    color: #ecfffb;
+    width: 1440px;
+    min-height: 960px;
+    overflow: hidden;
+  }
+  .frame {
+    padding: 56px;
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 28px;
+    min-height: 960px;
+  }
+  .panel {
+    background: rgba(8, 21, 18, 0.88);
+    border: 1px solid rgba(64, 151, 136, 0.32);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(18px);
+  }
+  .hero {
+    border-radius: 30px;
+    padding: 34px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .eyebrow {
+    color: #8ee6d8;
+    letter-spacing: 0.22em;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  h1 {
+    font-size: 46px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .hero p {
+    color: #b8ddd5;
+    font-size: 16px;
+    line-height: 1.7;
+    max-width: 290px;
+  }
+  .stack {
+    display: grid;
+    gap: 18px;
+  }
+  .mini-card {
+    border-radius: 24px;
+    padding: 22px 24px;
+  }
+  .mini-title {
+    color: #dffcf6;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .tag {
+    border-radius: 999px;
+    border: 1px solid rgba(94, 234, 212, 0.26);
+    background: rgba(18, 54, 48, 0.66);
+    color: #bbf7ec;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .shell {
+    border-radius: 34px;
+    padding: 28px;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 20px;
+  }
+  .shell-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .shell-header h2 {
+    font-size: 34px;
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+  .shell-header p {
+    color: #b8ddd5;
+    font-size: 15px;
+    margin-top: 8px;
+  }
+  .status-chip {
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2dd4bf, #99f6e4);
+    color: #08201c;
+    font-size: 13px;
+    font-weight: 800;
+    padding: 12px 16px;
+  }
+  .command-bar {
+    border-radius: 22px;
+    padding: 16px 18px;
+    background: rgba(7, 15, 14, 0.88);
+    border: 1px solid rgba(74, 138, 126, 0.24);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: #9ef5e7;
+  }
+  .content {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 20px;
+  }
+  .console,
+  .summary {
+    border-radius: 24px;
+    background: rgba(7, 14, 13, 0.76);
+    border: 1px solid rgba(75, 131, 121, 0.22);
+    padding: 22px;
+  }
+  .section-label {
+    color: #7fe4d5;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    margin-bottom: 18px;
+  }
+  .line {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    color: #d7fff8;
+  }
+  .muted { color: #78aea4; }
+  .good { color: #8df1bd; }
+  .warn { color: #ffe285; }
+  .grid {
+    display: grid;
+    gap: 14px;
+  }
+  .metric {
+    border-radius: 18px;
+    background: rgba(16, 42, 37, 0.74);
+    padding: 18px;
+  }
+  .metric small {
+    display: block;
+    color: #93d3c8;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+  }
+  .metric strong {
+    font-size: 30px;
+    letter-spacing: -0.04em;
+  }
+  .metric span {
+    display: block;
+    color: #b8ddd5;
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+  <main class="frame">
+    <section class="stack">
+      <article class="panel hero">
+        <div class="eyebrow">CODEX WORKFLOW</div>
+        <h1>Production-ready orchestration for Codex</h1>
+        <p>Route goals to the right worker, inject standards with hooks, resume interrupted batches, and keep every run auditable.</p>
+      </article>
+      <article class="panel mini-card">
+        <div class="mini-title">Runtime pillars</div>
+        <div class="tag-row">
+          <div class="tag">Auto-route</div>
+          <div class="tag">maxParallel</div>
+          <div class="tag">Resume</div>
+          <div class="tag">Cost</div>
+          <div class="tag">NDJSON Logs</div>
+          <div class="tag">Review Gates</div>
+        </div>
+      </article>
+      <article class="panel mini-card">
+        <div class="mini-title">Executor mesh</div>
+        <div class="tag-row">
+          <div class="tag">opencode</div>
+          <div class="tag">opencode-pro</div>
+          <div class="tag">opencode-serve</div>
+          <div class="tag">mimo</div>
+          <div class="tag">claude</div>
+          <div class="tag">omp</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel shell">
+      <div class="shell-header">
+        <div>
+          <div class="eyebrow">BATCH PANEL</div>
+          <h2>Parallel batch with cost, review, and resume</h2>
+          <p>One workflow loop that stays readable for users and configurable for advanced operators.</p>
+        </div>
+        <div class="status-chip">5/5 COMPLETED</div>
+      </div>
+
+      <div class="command-bar">
+        node dist/index.js run-batch --goals "Implement hello,Review login,Plan homepage,Debug auth,Design migration" --mode parallel --auto-route
+      </div>
+
+      <div class="content">
+        <div class="console">
+          <div class="section-label">STDERR SUMMARY</div>
+          <div class="line muted">Auto-route selected: deepseek-v4-flash:2, deepseek-v4-pro:2, mimo-v2.5:1</div>
+          <div class="line good">[workflow] Batch progress: 4/5 tasks completed</div>
+          <div class="line">[workflow] Batch 7c431a12-a56e-4714-8edc-a53381b9188a: completed</div>
+          <div class="line">[workflow]   Completed: 5/5</div>
+          <div class="line">[workflow]   Blocked:   0</div>
+          <div class="line">[workflow]   Delegated: 0</div>
+          <div class="line warn">[workflow]   Duration: 48.5s</div>
+          <div class="line good">[workflow]   Est. cost: $0.022729</div>
+          <div class="line muted">{ batch.summary, batch.cost, batch.routes, batch.tasks }</div>
+        </div>
+
+        <div class="summary">
+          <div class="section-label">EXECUTION SNAPSHOT</div>
+          <div class="grid">
+            <div class="metric">
+              <small>ROUTING</small>
+              <strong>Auto-profile mix</strong>
+              <span>Implementer / debugger → Flash, reviewer / architect → Pro, planner → Mimo.</span>
+            </div>
+            <div class="metric">
+              <small>STATE</small>
+              <strong>.workflow-state</strong>
+              <span>Task JSON, batch JSON, probe snapshots, and resumable phase tracking.</span>
+            </div>
+            <div class="metric">
+              <small>OBSERVABILITY</small>
+              <strong>Daily NDJSON logs</strong>
+              <span>`batch.start` → `task.complete` → `batch.end`, ready for grep, jq, or scripts.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

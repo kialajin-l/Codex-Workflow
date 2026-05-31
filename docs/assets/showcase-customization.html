@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex Workflow Customization Showcase</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap");
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 1440px;
+    min-height: 960px;
+    font-family: "Inter", sans-serif;
+    background:
+      radial-gradient(circle at 16% 12%, rgba(45, 212, 191, 0.1), transparent 28%),
+      linear-gradient(180deg, #06100e 0%, #081614 100%);
+    color: #ebfffb;
+  }
+  .wrap {
+    padding: 56px;
+    display: grid;
+    gap: 26px;
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+  }
+  .eyebrow {
+    color: #8ee6d8;
+    letter-spacing: 0.22em;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 48px;
+    line-height: 1;
+    letter-spacing: -0.05em;
+  }
+  .subtitle {
+    color: #b8ddd5;
+    font-size: 17px;
+    margin-top: 12px;
+    max-width: 760px;
+    line-height: 1.65;
+  }
+  .pill {
+    border-radius: 999px;
+    border: 1px solid rgba(94, 234, 212, 0.28);
+    background: rgba(13, 37, 33, 0.84);
+    color: #bcfaef;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 0.95fr 1.05fr;
+    gap: 24px;
+  }
+  .card {
+    background: rgba(8, 21, 18, 0.88);
+    border: 1px solid rgba(64, 151, 136, 0.32);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(18px);
+    border-radius: 30px;
+    padding: 28px;
+  }
+  .card-title {
+    color: #dffcf6;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+  .card-note {
+    color: #b5ded5;
+    font-size: 14px;
+    line-height: 1.7;
+    margin-bottom: 18px;
+  }
+  .code {
+    border-radius: 22px;
+    background: rgba(6, 13, 12, 0.88);
+    border: 1px solid rgba(61, 116, 106, 0.22);
+    padding: 20px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #cffff8;
+    white-space: pre-wrap;
+  }
+  .accent { color: #95f5e7; }
+  .muted { color: #78aea4; }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 12px;
+  }
+  .step {
+    border-radius: 20px;
+    background: rgba(16, 42, 37, 0.74);
+    padding: 18px 16px;
+    min-height: 126px;
+  }
+  .step small {
+    color: #85e5d7;
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    margin-bottom: 10px;
+  }
+  .step strong {
+    display: block;
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+  .step span {
+    display: block;
+    color: #b5ded5;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ADVANCED CUSTOMIZATION</div>
+        <h1>Hooks, presets, and mixed execution modes</h1>
+        <p class="subtitle">Codex Workflow is not a hard-coded pipeline. You can inject skills, swap executors, add lint gates, change MCP scope, and route roles between CLI workers and Codex-managed tasks.</p>
+      </div>
+      <div class="pill">workflow-load / workflow-save / run-batch --resume</div>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-title">task.before_dispatch.json</div>
+        <div class="card-note">Use dispatch hooks to route architect work into Codex, keep implementers on fast CLI workers, and inject skill contracts only where they matter.</div>
+        <div class="code">{
+  <span class="accent">"event"</span>: <span class="accent">"task:before_dispatch"</span>,
+  <span class="accent">"default_exec_mode"</span>: <span class="accent">"cli"</span>,
+  <span class="accent">"rules"</span>: [
+    {
+      <span class="accent">"when"</span>: { <span class="accent">"route.role"</span>: <span class="accent">"architect"</span> },
+      <span class="accent">"then"</span>: { <span class="accent">"exec_mode"</span>: <span class="accent">"codex"</span> }
+    },
+    {
+      <span class="accent">"when"</span>: { <span class="accent">"route.role"</span>: <span class="accent">"implementer"</span> },
+      <span class="accent">"then"</span>: {
+        <span class="accent">"executor"</span>: <span class="accent">"opencode"</span>,
+        <span class="accent">"inject_skill"</span>: <span class="accent">"lint-gate.md"</span>
+      }
+    }
+  ]
+}</div>
+      </article>
+
+      <article class="card">
+        <div class="card-title">Workflow preset flow</div>
+        <div class="card-note">Treat presets as reusable policy bundles: load a baseline, modify hooks, validate behavior, then save a new workflow for teams or projects.</div>
+        <div class="flow">
+          <div class="step">
+            <small>STEP 01</small>
+            <strong>Load</strong>
+            <span>`workflow-load --name lint-gate`</span>
+          </div>
+          <div class="step">
+            <small>STEP 02</small>
+            <strong>Edit</strong>
+            <span>Adjust hook rules, executor mapping, skill injection.</span>
+          </div>
+          <div class="step">
+            <small>STEP 03</small>
+            <strong>Run</strong>
+            <span>Validate with `run-batch`, inspect review, logs, and cost.</span>
+          </div>
+          <div class="step">
+            <small>STEP 04</small>
+            <strong>Save</strong>
+            <span>`workflow-save --name my-workflow`</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <div class="card-title">task.after_result.json</div>
+        <div class="card-note">Apply hard gates after worker execution. Current actions support `lint`, `block`, and rule-based rejection with explicit reasons.</div>
+        <div class="code">{
+  <span class="accent">"event"</span>: <span class="accent">"task:after_result"</span>,
+  <span class="accent">"rules"</span>: [
+    {
+      <span class="accent">"when"</span>: { <span class="accent">"route.role"</span>: <span class="accent">"debugger"</span> },
+      <span class="accent">"then"</span>: { <span class="accent">"action"</span>: <span class="accent">"lint"</span> }
+    },
+    {
+      <span class="accent">"when"</span>: { <span class="accent">"goalIncludes"</span>: <span class="accent">"lint error"</span> },
+      <span class="accent">"then"</span>: {
+        <span class="accent">"action"</span>: <span class="accent">"block"</span>,
+        <span class="accent">"reason"</span>: <span class="accent">"lint check failed"</span>
+      }
+    }
+  ]
+}</div>
+      </article>
+
+      <article class="card">
+        <div class="card-title">Resume and state recovery</div>
+        <div class="card-note">Batches persist to `.workflow-state/`. If a run is interrupted, resume only touches tasks that are neither `completed` nor `blocked`.</div>
+        <div class="code"><span class="muted"># inspect</span>
+node dist/index.js status --batch &lt;batch-id&gt;
+
+<span class="muted"># recover only pending tasks</span>
+node dist/index.js run-batch --resume &lt;batch-id&gt;
+
+<span class="muted"># persisted artifacts</span>
+.workflow-state/batch.&lt;id&gt;.json
+.workflow-state/&lt;task-id&gt;.json
+.workflow-state/logs/workflow-YYYY-MM-DD.log</div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,112 @@
+{
+  "defaultExecutor": "opencode",
+  "maxParallel": 4,
+  "executors": {
+    "mock": {
+      "mode": "spawn",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "Write-Output"
+      ],
+      "artifactMode": "text",
+      "timeoutMs": 30000
+    },
+    "omp": {
+      "mode": "spawn",
+      "command": "omp",
+      "args": [
+        "-p"
+      ],
+      "timeoutMs": 300000
+    },
+    "opencode": {
+      "mode": "spawn",
+      "command": "opencode",
+      "args": [
+        "run",
+        "--pure",
+        "--format",
+        "json",
+        "--model",
+        "deepseek/deepseek-v4-flash"
+      ],
+      "probePrompt": "Say exactly hello",
+      "artifactMode": "text",
+      "timeoutMs": 180000
+    },
+    "opencode-pro": {
+      "mode": "spawn",
+      "command": "opencode",
+      "args": [
+        "run",
+        "--pure",
+        "--format",
+        "json",
+        "--model",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "artifactMode": "text",
+      "timeoutMs": 300000
+    },
+    "opencode-serve": {
+      "mode": "serve",
+      "command": "opencode",
+      "args": [],
+      "endpoint": "http://127.0.0.1:4196",
+      "model": "deepseek/deepseek-chat",
+      "timeoutMs": 90000,
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "artifactMode": "schema"
+    },
+    "claude": {
+      "mode": "spawn",
+      "command": "claude",
+      "args": [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose"
+      ],
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "timeoutMs": 300000
+    },
+    "deepseek": {
+      "mode": "spawn",
+      "command": "deepseek",
+      "args": [],
+      "timeoutMs": 300000
+    },
+    "mimo": {
+      "mode": "spawn",
+      "command": "opencode",
+      "args": [
+        "run",
+        "--pure",
+        "--format",
+        "json",
+        "--model",
+        "openrouter/xiaomi/mimo-v2.5"
+      ],
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "artifactMode": "text",
+      "timeoutMs": 180000
+    },
+    "mimo-flash": {
+      "mode": "spawn",
+      "command": "opencode",
+      "args": [
+        "run",
+        "--pure",
+        "--format",
+        "json",
+        "--model",
+        "openrouter/xiaomi/mimo-v2-flash"
+      ],
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "artifactMode": "text",
+      "timeoutMs": 180000
+    }
+  }
+}

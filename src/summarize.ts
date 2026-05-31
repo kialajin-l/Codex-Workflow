@@ -1,0 +1,36 @@
+import type { BatchSummary, WorkflowTask } from "./types.js";
+
+export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
+  const summary: BatchSummary = {
+    totalTasks: tasks.length,
+    completed: tasks.filter((task) => task.phase === "completed").length,
+    blocked: tasks.filter((task) => task.phase === "blocked").length,
+    delegated: tasks.filter((task) => task.phase === "delegated_to_codex").length,
+    consensus: "none",
+    risks: [],
+    nextSteps: [],
+  };
+
+  const completedTasks = tasks.filter((task) => task.phase === "completed" && task.workerResult?.parsed);
+  const allOk = completedTasks.every((task) => task.workerResult?.parsed?.status === "ok");
+  summary.consensus = completedTasks.length === 0 ? "none" : allOk ? "high" : "partial";
+
+  for (const task of tasks) {
+    const risk = task.workerResult?.parsed?.risks;
+    if (risk && risk.toLowerCase() !== "none") {
+      summary.risks.push(`[${task.goal}]: ${risk}`);
+    }
+  }
+
+  if (summary.blocked > 0) {
+    summary.nextSteps.push(`${summary.blocked} task(s) blocked - review and retry`);
+  }
+  if (summary.delegated > 0) {
+    summary.nextSteps.push(`${summary.delegated} task(s) delegated to Codex - complete them first`);
+  }
+  if (summary.completed === summary.totalTasks) {
+    summary.nextSteps.push("All tasks completed - proceed to integration or deployment");
+  }
+
+  return summary;
+}

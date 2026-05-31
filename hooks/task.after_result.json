@@ -1,0 +1,4 @@
+{
+  "event": "task:after_result",
+  "rules": []
+}

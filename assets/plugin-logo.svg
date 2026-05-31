@@ -1,0 +1,10 @@
+<svg width="640" height="220" viewBox="0 0 640 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="220" rx="32" fill="#0B1513"/>
+  <rect x="34" y="34" width="152" height="152" rx="32" fill="#102723" stroke="#1E5A4E" stroke-width="6"/>
+  <path d="M66 84H154" stroke="#99F6E4" stroke-width="10" stroke-linecap="round"/>
+  <path d="M66 114H140" stroke="#2DD4BF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M66 144H122" stroke="#2DD4BF" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="156" cy="144" r="12" fill="#99F6E4"/>
+  <text x="224" y="96" fill="#F2FFFC" font-family="Segoe UI, Arial, sans-serif" font-size="42" font-weight="700">Codex Workflow</text>
+  <text x="224" y="142" fill="#BDECE2" font-family="Segoe UI, Arial, sans-serif" font-size="22">Hook-driven workflow orchestration for Codex</text>
+</svg>

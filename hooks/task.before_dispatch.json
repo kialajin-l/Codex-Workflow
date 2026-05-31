@@ -1,0 +1,5 @@
+{
+  "event": "task:before_dispatch",
+  "default_exec_mode": "cli",
+  "rules": []
+}

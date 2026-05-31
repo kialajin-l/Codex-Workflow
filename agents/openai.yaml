@@ -1,0 +1,4 @@
+name: codex-workflow
+display_name: Codex Workflow
+description: Multi-agent workflow orchestration with hook-based CLI and Codex delegation.
+entry: SKILL.md

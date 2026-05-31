@@ -1,0 +1,43 @@
+{
+  "name": "lint-gate",
+  "hooks": {
+    "task.before_dispatch.json": {
+      "event": "task:before_dispatch",
+      "default_exec_mode": "cli",
+      "rules": [
+        {
+          "when": { "route.role": "implementer" },
+          "then": { "inject_skill": "lint-gate.md", "executor": "opencode-serve" }
+        },
+        {
+          "when": { "route.role": "debugger" },
+          "then": { "inject_skill": "lint-gate.md", "executor": "opencode-serve" }
+        }
+      ]
+    },
+    "task.after_result.json": {
+      "event": "task:after_result",
+      "rules": [
+        {
+          "when": { "route.role": "implementer" },
+          "then": { "action": "lint" }
+        },
+        {
+          "when": { "route.role": "debugger" },
+          "then": { "action": "lint" }
+        },
+        {
+          "when": { "goalIncludes": "lint error" },
+          "then": { "action": "block", "reason": "lint check failed" }
+        }
+      ]
+    },
+    "review.after.json": {
+      "event": "review:after",
+      "rules": []
+    }
+  },
+  "skills": {
+    "lint-gate.md": "# Lint Gate Skill\n\nBefore returning your result, ensure:\n1. All modified files pass the project's linter.\n2. If linting fails, report the errors in the `risks` field.\n3. Mark `status: \"blocked\"` if lint errors exist and cannot be auto-fixed.\n"
+  }
+}
