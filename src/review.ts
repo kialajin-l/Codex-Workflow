@@ -33,41 +33,135 @@ export function extractJsonObject(stdout: string): string | null {
   return output.slice(start, end + 1);
 }
 
+function readLabeledField(text: string, labels: string[]): string | null {
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    for (const label of labels) {
+      const pattern = new RegExp(`^\\s*${label}\\s*[:：-]\\s*(.+)$`, "i");
+      const match = line.match(pattern);
+      if (match?.[1]?.trim()) {
+        return match[1].trim();
+      }
+    }
+  }
+  return null;
+}
+
+function readBulletBlock(text: string, labels: string[]): string[] {
+  const lines = text.split(/\r?\n/);
+  const items: string[] = [];
+  let collecting = false;
+
+  for (const line of lines) {
+    if (!collecting) {
+      const startsSection = labels.some((label) => new RegExp(`^\\s*${label}\\s*[:：-]?\\s*$`, "i").test(line));
+      if (startsSection) {
+        collecting = true;
+        continue;
+      }
+    }
+
+    if (!collecting) {
+      continue;
+    }
+
+    if (/^\s*$/.test(line)) {
+      if (items.length > 0) {
+        break;
+      }
+      continue;
+    }
+
+    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：-]\s*/.test(line) && !/^\s*[-*•\d]/.test(line)) {
+      break;
+    }
+
+    const bulletMatch = line.match(/^\s*(?:[-*•]|\d+[.)])\s*(.+)$/);
+    if (bulletMatch?.[1]?.trim()) {
+      items.push(bulletMatch[1].trim());
+      continue;
+    }
+
+    if (items.length > 0) {
+      items[items.length - 1] = `${items[items.length - 1]} ${line.trim()}`.trim();
+    }
+  }
+
+  return items.filter(Boolean);
+}
+
+function salvageDeepworkPayload(
+  stdout: string,
+  mode?: WorkflowTask["structuredMode"],
+): WorkerPayload | null {
+  if (mode === "deepwork-planner") {
+    const candidate = {
+      summary: readLabeledField(stdout, ["summary", "result", "overview"]),
+      changes: readLabeledField(stdout, ["changes", "change", "work", "deliverable"]),
+      risks: readLabeledField(stdout, ["risks", "risk", "caveats"]),
+      status: normalizeStatus(readLabeledField(stdout, ["status"]) ?? "ok"),
+      goal: readLabeledField(stdout, ["goal", "target"]),
+      assumptions: readBulletBlock(stdout, ["assumptions", "assumption"]),
+      steps: readBulletBlock(stdout, ["steps", "plan", "implementation steps"]),
+    };
+    const parsed = deepworkPlannerPayloadSchema.safeParse(candidate);
+    return parsed.success ? parsed.data : null;
+  }
+
+  if (mode === "deepwork-implementer") {
+    const candidate = {
+      summary: readLabeledField(stdout, ["summary", "result", "overview"]),
+      changes: readLabeledField(stdout, ["changes", "change", "work"]),
+      risks: readLabeledField(stdout, ["risks", "risk", "caveats"]),
+      status: normalizeStatus(readLabeledField(stdout, ["status"]) ?? "ok"),
+      deliverable: readLabeledField(stdout, ["deliverable", "output", "implementation"]),
+      assumptions: readBulletBlock(stdout, ["assumptions", "assumption"]),
+      nextStep: readLabeledField(stdout, ["next step", "nextstep", "follow-up"]),
+    };
+    const parsed = deepworkImplementerPayloadSchema.safeParse(candidate);
+    return parsed.success ? parsed.data : null;
+  }
+
+  return null;
+}
+
 function parseDeepworkPayload(
   stdout: string,
   mode?: WorkflowTask["structuredMode"],
 ): WorkerPayload | null {
   const jsonBlock = extractJsonObject(stdout);
-  if (!jsonBlock) {
-    return null;
-  }
+  if (jsonBlock) {
+    try {
+      const parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
+      if (mode === "deepwork-planner") {
+        const planner = deepworkPlannerPayloadSchema.safeParse(parsed);
+        if (planner.success) {
+          return planner.data;
+        }
+      }
 
-  try {
-    const parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
-    if (mode === "deepwork-planner") {
+      if (mode === "deepwork-implementer") {
+        const implementer = deepworkImplementerPayloadSchema.safeParse(parsed);
+        if (implementer.success) {
+          return implementer.data;
+        }
+      }
+
       const planner = deepworkPlannerPayloadSchema.safeParse(parsed);
-      return planner.success ? planner.data : null;
-    }
+      if (planner.success) {
+        return planner.data;
+      }
 
-    if (mode === "deepwork-implementer") {
       const implementer = deepworkImplementerPayloadSchema.safeParse(parsed);
-      return implementer.success ? implementer.data : null;
+      if (implementer.success) {
+        return implementer.data;
+      }
+    } catch {
+      // Fall through to salvage heuristics.
     }
-
-    const planner = deepworkPlannerPayloadSchema.safeParse(parsed);
-    if (planner.success) {
-      return planner.data;
-    }
-
-    const implementer = deepworkImplementerPayloadSchema.safeParse(parsed);
-    if (implementer.success) {
-      return implementer.data;
-    }
-  } catch {
-    return null;
   }
 
-  return null;
+  return salvageDeepworkPayload(stdout, mode);
 }
 
 export function parseWorkerPayload(stdout: string, mode?: WorkflowTask["structuredMode"]): WorkerPayload | null {
@@ -146,6 +240,37 @@ export function summarizeArtifact(artifact: WorkerArtifact): WorkerPayload {
   };
 }
 
+function categorizeWorkerFailure(
+  result: WorkerResult,
+  expected: "schema" | "artifact",
+  payload: WorkerPayload | null,
+  artifact: WorkerArtifact | null,
+): WorkerResult["failureCategory"] | undefined {
+  const output = result.stdout.trim();
+  const stderr = result.stderr.toLowerCase();
+
+  if (result.status !== "ok") {
+    if (stderr.includes("timeout")) {
+      return "timeout";
+    }
+    return "non-zero-exit";
+  }
+
+  if (!output) {
+    return "empty-output";
+  }
+
+  if (expected === "schema" && !payload) {
+    return extractJsonObject(result.stdout) ? "invalid-structured-text" : "invalid-json";
+  }
+
+  if (expected === "artifact" && !payload && !artifact) {
+    return "invalid-json";
+  }
+
+  return undefined;
+}
+
 export function reviewWorkerResult(result: WorkerResult): ReviewResult {
   return reviewWorkerResultForMode(result, "artifact");
 }
@@ -162,6 +287,7 @@ export function reviewWorkerResultForMode(
     : (result.parsed ?? parseWorkerPayload(result.stdout, mode));
   const artifact = result.artifact ?? extractWorkerArtifact(result.stdout);
   const normalizedOutput = output.toLowerCase();
+  result.failureCategory = categorizeWorkerFailure(result, expected, payload, artifact);
 
   if (result.status !== "ok") {
     issues.push("Worker exited with a non-zero status.");
@@ -200,11 +326,9 @@ export function reviewWorkerResultForMode(
     issues.push("Worker claimed to have written or updated files without file access.");
   }
 
-  const decision = issues.length === 0 ? "accept" : "retry";
-
   return {
-    decision,
-    summary: decision === "accept"
+    decision: issues.length === 0 ? "accept" : "retry",
+    summary: issues.length === 0
       ? "Worker result accepted for manual follow-up or next workflow step."
       : "Worker result requires retry or a different executor.",
     issues,

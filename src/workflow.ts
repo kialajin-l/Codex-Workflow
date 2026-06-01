@@ -14,7 +14,7 @@ import {
 import { logBatchEnd, logBatchStart, logTaskComplete } from "./logger.js";
 import type { RouteDecision, WorkflowBatchResult, WorkflowConfig, WorkflowTask } from "./types.js";
 import { runExecutor } from "./executor.js";
-import { expectedOutputMode, reviewWorkerResultForMode } from "./review.js";
+import { expectedOutputMode, extractJsonObject, reviewWorkerResultForMode } from "./review.js";
 import { saveBatch, saveTask } from "./store.js";
 import { summarizeBatch } from "./summarize.js";
 import type { DeepworkImplementerResult, DeepworkPlannerResult } from "./types.js";
@@ -44,6 +44,46 @@ function deepworkSchemaForRole(role?: WorkflowTask["role"]): string | null {
   }
 
   return null;
+}
+
+function buildDeepworkSchemaInstructions(goal: string, role?: WorkflowTask["role"], retry = false): string[] {
+  const schema = deepworkSchemaForRole(role);
+  if (!schema) {
+    return [];
+  }
+
+  const lines = [
+    retry ? "Retry. Your previous answer did not satisfy the required JSON schema." : "Return exactly one JSON object.",
+    "Output must be valid JSON.",
+    "Do not wrap the JSON in markdown fences.",
+    "Do not add any text before or after the JSON object.",
+    "Do not include comments, placeholders, or explanatory notes.",
+    "Every required field in the schema must be present exactly once.",
+    "If you are unsure, make the smallest reasonable assumption and still fill every field.",
+    "Arrays must contain at least one concrete string item.",
+    "Use short, concrete strings. Do not leave fields empty.",
+    "You do not have repository or filesystem access in this task.",
+    "Do not claim to have inspected package.json, source files, configs, or local code.",
+    "Do not invent repository contents or quote files you were not given.",
+    `Schema: ${schema}`,
+    `Task: ${goal}`,
+  ];
+
+  if (role === "planner") {
+    lines.splice(lines.length - 2, 0,
+      "For planner tasks: goal must restate the base goal without the suffix.",
+      "For planner tasks: steps must be ordered implementation steps, not headings.",
+    );
+  }
+
+  if (role === "implementer") {
+    lines.splice(lines.length - 2, 0,
+      "For implementer tasks: deliverable must describe the concrete next change.",
+      "For implementer tasks: nextStep must be one immediate follow-up action.",
+    );
+  }
+
+  return lines;
 }
 
 function deepworkStructuredModeForRole(role?: WorkflowTask["role"]): WorkflowTask["structuredMode"] {
@@ -178,15 +218,7 @@ async function runParallelWithLimit(
 export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
   const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
   if (expected === "schema" && deepworkSchema) {
-    return [
-      "Return exactly one JSON object.",
-      "No markdown. No explanation. No questions.",
-      "You do not have repository or filesystem access in this task.",
-      "Do not claim to have inspected package.json, source files, configs, or local code.",
-      "Do not invent repository contents or quote files you were not given.",
-      `Schema: ${deepworkSchema}`,
-      `Task: ${goal}`,
-    ].join("\n");
+    return buildDeepworkSchemaInstructions(goal, role, false).join("\n");
   }
 
   if (expected === "artifact") {
@@ -207,16 +239,7 @@ export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact",
 export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
   const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
   if (expected === "schema" && deepworkSchema) {
-    return [
-      "Retry.",
-      "Return exactly one JSON object.",
-      "No markdown. No explanation. No questions.",
-      "You do not have repository or filesystem access in this task.",
-      "Do not claim to have inspected package.json, source files, configs, or local code.",
-      "Do not invent repository contents or quote files you were not given.",
-      `Schema: ${deepworkSchema}`,
-      `Task: ${goal}`,
-    ].join("\n");
+    return buildDeepworkSchemaInstructions(goal, role, true).join("\n");
   }
 
   if (expected === "artifact") {
@@ -311,6 +334,14 @@ export async function runTaskWithFallbacks(
       task.expectedOutput ?? expectedOutputMode(executor.artifactMode),
       task.structuredMode,
     );
+
+    if (
+      task.review.decision === "accept"
+      && task.workerResult.parsed
+      && !extractJsonObject(task.workerResult.stdout)
+    ) {
+      task.workerResult.source = "executor-salvaged";
+    }
 
     if (task.review.decision === "accept") {
       task.phase = "completed";

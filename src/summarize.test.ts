@@ -72,6 +72,7 @@ describe("batch summary", () => {
 
     assert.deepEqual(summary.resultSources, {
       executor: 1,
+      executorSalvaged: 0,
       fallbackSynthesized: 1,
       delegated: 1,
       unknown: 1,

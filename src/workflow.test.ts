@@ -12,7 +12,8 @@ describe("workflow prompts", () => {
     );
 
     assert.match(prompt, /Return exactly one JSON object/i);
-    assert.match(prompt, /No markdown\. No explanation\. No questions\./i);
+    assert.match(prompt, /Output must be valid JSON\./i);
+    assert.match(prompt, /Do not add any text before or after the JSON object\./i);
     assert.match(prompt, /\"goal\":\"string\"/i);
     assert.match(prompt, /\"steps\":\[\s*\"string\"\s*\]/i);
   });
@@ -24,7 +25,8 @@ describe("workflow prompts", () => {
       "implementer",
     );
 
-    assert.match(prompt, /^Retry\./i);
+    assert.match(prompt, /^Retry\. Your previous answer did not satisfy the required JSON schema\./i);
+    assert.match(prompt, /Every required field in the schema must be present exactly once\./i);
     assert.match(prompt, /\"deliverable\":\"string\"/i);
     assert.match(prompt, /\"nextStep\":\"string\"/i);
   });
@@ -64,6 +66,60 @@ describe("structured payload parsing", () => {
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(record.deliverable, "Add GET /health returning 200");
     assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+
+  it("salvages planner payload from labeled text", () => {
+    const payload = parseWorkerPayload([
+      "Summary: Created a plan",
+      "Changes: Outlined the next steps",
+      "Risks: Endpoint wiring may touch routing",
+      "Goal: Ship a health endpoint",
+      "Assumptions:",
+      "- Express app already exists",
+      "Steps:",
+      "- Add route",
+      "- Add test",
+    ].join("\n"), "deepwork-planner");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.deepEqual(record.steps, ["Add route", "Add test"]);
+  });
+
+  it("salvages implementer payload from labeled text", () => {
+    const payload = parseWorkerPayload([
+      "Summary: Proposed the next change",
+      "Changes: Specified the deliverable and next step",
+      "Risks: No file edits were made",
+      "Deliverable: Add GET /health returning 200",
+      "Assumptions:",
+      "- Node service uses Express",
+      "Next step: Implement the route in the API layer",
+    ].join("\n"), "deepwork-implementer");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.deliverable, "Add GET /health returning 200");
+    assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+
+  it("classifies salvageable planner text without JSON", () => {
+    const payload = parseWorkerPayload([
+      "Summary: Created a plan",
+      "Changes: Outlined the next steps",
+      "Risks: Endpoint wiring may touch routing",
+      "Goal: Ship a health endpoint",
+      "Assumptions:",
+      "- Express app already exists",
+      "Steps:",
+      "- Add route",
+      "- Add test",
+    ].join("\n"), "deepwork-planner");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
   });
 });
 

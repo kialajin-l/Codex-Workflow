@@ -96,7 +96,7 @@ export interface WorkflowTask {
 
 export interface WorkerResult {
   status: "ok" | "failed" | "delegated";
-  source?: "executor" | "fallback-synthesized" | "delegated";
+  source?: "executor" | "executor-salvaged" | "fallback-synthesized" | "delegated";
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -105,6 +105,7 @@ export interface WorkerResult {
   attempts?: number;
   parsed?: WorkerPayload;
   artifact?: WorkerArtifact;
+  failureCategory?: "empty-output" | "invalid-json" | "invalid-structured-text" | "non-zero-exit" | "timeout" | "unknown";
 }
 
 export interface ReviewResult {
@@ -149,6 +150,7 @@ export interface BatchSummary {
   delegated: number;
   resultSources: {
     executor: number;
+    executorSalvaged: number;
     fallbackSynthesized: number;
     delegated: number;
     unknown: number;

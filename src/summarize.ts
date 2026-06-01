@@ -8,6 +8,7 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     delegated: tasks.filter((task) => task.phase === "delegated_to_codex").length,
     resultSources: {
       executor: 0,
+      executorSalvaged: 0,
       fallbackSynthesized: 0,
       delegated: 0,
       unknown: 0,
@@ -21,6 +22,9 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     switch (task.workerResult?.source) {
       case "executor":
         summary.resultSources.executor += 1;
+        break;
+      case "executor-salvaged":
+        summary.resultSources.executorSalvaged += 1;
         break;
       case "fallback-synthesized":
         summary.resultSources.fallbackSynthesized += 1;
