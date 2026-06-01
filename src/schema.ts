@@ -43,6 +43,19 @@ export const workerPayloadSchema = z.object({
   status: z.enum(["ok", "blocked"]),
 });
 
+export const deepworkPlannerPayloadSchema = workerPayloadSchema.extend({
+  goal: z.string().min(1),
+  assumptions: z.array(z.string().min(1)).min(1),
+  steps: z.array(z.string().min(1)).min(1),
+  risksList: z.array(z.string().min(1)).min(1),
+});
+
+export const deepworkImplementerPayloadSchema = workerPayloadSchema.extend({
+  deliverable: z.string().min(1),
+  assumptions: z.array(z.string().min(1)).min(1),
+  nextStep: z.string().min(1),
+});
+
 export const hookEventSchema = z.enum([
   "workflow:plan:before",
   "task:before_dispatch",

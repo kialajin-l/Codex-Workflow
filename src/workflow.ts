@@ -29,6 +29,34 @@ type TaskExecutionOverrides = {
   execMode?: "cli" | "codex";
 };
 
+function isDeepworkStructuredGoal(goal: string): boolean {
+  return / - produce a short implementation plan$| - execute the highest-value next step$/i.test(goal);
+}
+
+function deepworkSchemaForRole(role?: WorkflowTask["role"]): string | null {
+  if (role === "planner") {
+    return "{\"summary\":\"string\",\"changes\":\"string\",\"risks\":\"string\",\"status\":\"ok|blocked\",\"goal\":\"string\",\"assumptions\":[\"string\"],\"steps\":[\"string\"],\"risksList\":[\"string\"]}";
+  }
+
+  if (role === "implementer") {
+    return "{\"summary\":\"string\",\"changes\":\"string\",\"risks\":\"string\",\"status\":\"ok|blocked\",\"deliverable\":\"string\",\"assumptions\":[\"string\"],\"nextStep\":\"string\"}";
+  }
+
+  return null;
+}
+
+function deepworkStructuredModeForRole(role?: WorkflowTask["role"]): WorkflowTask["structuredMode"] {
+  if (role === "planner") {
+    return "deepwork-planner";
+  }
+
+  if (role === "implementer") {
+    return "deepwork-implementer";
+  }
+
+  return undefined;
+}
+
 function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): string[] {
   const shared = [
     "Provide one concrete artifact in plain text.",
@@ -101,6 +129,19 @@ async function runParallelWithLimit(
 }
 
 export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
+  const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
+  if (expected === "schema" && deepworkSchema) {
+    return [
+      "Return exactly one JSON object.",
+      "No markdown. No explanation. No questions.",
+      "You do not have repository or filesystem access in this task.",
+      "Do not claim to have inspected package.json, source files, configs, or local code.",
+      "Do not invent repository contents or quote files you were not given.",
+      `Schema: ${deepworkSchema}`,
+      `Task: ${goal}`,
+    ].join("\n");
+  }
+
   if (expected === "artifact") {
     return [
       ...buildArtifactInstructions(goal, role),
@@ -117,6 +158,20 @@ export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact",
 }
 
 export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
+  const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
+  if (expected === "schema" && deepworkSchema) {
+    return [
+      "Retry.",
+      "Return exactly one JSON object.",
+      "No markdown. No explanation. No questions.",
+      "You do not have repository or filesystem access in this task.",
+      "Do not claim to have inspected package.json, source files, configs, or local code.",
+      "Do not invent repository contents or quote files you were not given.",
+      `Schema: ${deepworkSchema}`,
+      `Task: ${goal}`,
+    ].join("\n");
+  }
+
   if (expected === "artifact") {
     return [
       "Retry.",
@@ -143,7 +198,9 @@ export async function createTask(
   overrides?: TaskExecutionOverrides,
 ): Promise<WorkflowTask> {
   const now = new Date().toISOString();
-  const expectedOutput = expectedOutputMode(config.executors[executorName]?.artifactMode);
+  const expectedOutput = isDeepworkStructuredGoal(goal)
+    ? "schema"
+    : expectedOutputMode(config.executors[executorName]?.artifactMode);
   const task: WorkflowTask = {
     id: crypto.randomUUID(),
     goal,
@@ -157,6 +214,7 @@ export async function createTask(
     execMode: overrides?.execMode,
     role: route?.role,
     complexity: route?.complexity,
+    structuredMode: isDeepworkStructuredGoal(goal) ? deepworkStructuredModeForRole(route?.role) : undefined,
   };
   await saveTask(rootDir, task);
   return task;
@@ -201,6 +259,7 @@ export async function runTaskWithFallbacks(
     task.review = reviewWorkerResultForMode(
       task.workerResult,
       task.expectedOutput ?? expectedOutputMode(executor.artifactMode),
+      task.structuredMode,
     );
 
     if (task.review.decision === "accept") {

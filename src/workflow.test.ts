@@ -1,33 +1,70 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { reviewWorkerResultForMode } from "./review.js";
+import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { buildRetryPrompt, buildWorkerPrompt } from "./workflow.js";
 
 describe("workflow prompts", () => {
-  it("builds planner artifact prompts with concrete output instructions", () => {
+  it("builds planner schema prompts with concrete output instructions", () => {
     const prompt = buildWorkerPrompt(
       "Ship a health endpoint - produce a short implementation plan",
-      "artifact",
+      "schema",
       "planner",
     );
 
-    assert.match(prompt, /Do not ask follow-up questions/i);
-    assert.match(prompt, /Do not say you need more context/i);
-    assert.match(prompt, /do not claim to have inspected package\.json/i);
-    assert.match(prompt, /1\. Goal/i);
-    assert.match(prompt, /4\. Risks/i);
+    assert.match(prompt, /Return exactly one JSON object/i);
+    assert.match(prompt, /No markdown\. No explanation\. No questions\./i);
+    assert.match(prompt, /\"goal\":\"string\"/i);
+    assert.match(prompt, /\"steps\":\[\s*\"string\"\s*\]/i);
   });
 
-  it("builds implementer retry prompts with concrete output instructions", () => {
+  it("builds implementer retry prompts with schema output instructions", () => {
     const prompt = buildRetryPrompt(
-      "Add a hello endpoint",
-      "artifact",
+      "Ship a health endpoint - execute the highest-value next step",
+      "schema",
       "implementer",
     );
 
     assert.match(prompt, /^Retry\./i);
-    assert.match(prompt, /1\. Deliverable/i);
-    assert.match(prompt, /3\. Next step/i);
+    assert.match(prompt, /\"deliverable\":\"string\"/i);
+    assert.match(prompt, /\"nextStep\":\"string\"/i);
+  });
+});
+
+describe("structured payload parsing", () => {
+  it("parses planner deepwork schema payload", () => {
+    const payload = parseWorkerPayload(JSON.stringify({
+      summary: "Created a plan",
+      changes: "Outlined the next steps",
+      risks: "Endpoint wiring may touch routing",
+      status: "ok",
+      goal: "Ship a health endpoint",
+      assumptions: ["Express app already exists"],
+      steps: ["Add route", "Add test"],
+      risksList: ["May require auth bypass"],
+    }));
+
+    assert.ok(payload);
+    assert.equal(payload.status, "ok");
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.deepEqual(record.steps, ["Add route", "Add test"]);
+  });
+
+  it("parses implementer deepwork schema payload", () => {
+    const payload = parseWorkerPayload(JSON.stringify({
+      summary: "Proposed the next change",
+      changes: "Specified the deliverable and next step",
+      risks: "No file edits were made",
+      status: "ok",
+      deliverable: "Add GET /health returning 200",
+      assumptions: ["Node service uses Express"],
+      nextStep: "Implement the route in the API layer",
+    }));
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.deliverable, "Add GET /health returning 200");
+    assert.equal(record.nextStep, "Implement the route in the API layer");
   });
 });
 

@@ -91,6 +91,7 @@ export interface WorkflowTask {
   complexity?: TaskComplexity;
   workerResult?: WorkerResult;
   review?: ReviewResult;
+  structuredMode?: "deepwork-planner" | "deepwork-implementer";
 }
 
 export interface WorkerResult {
@@ -232,3 +233,26 @@ export interface DeepworkExecutionPlan {
   execMode?: ExecMode;
   goals: string[];
 }
+
+export interface DeepworkPlannerResult {
+  summary: string;
+  changes: string;
+  risks: string;
+  status: "ok" | "blocked";
+  goal: string;
+  assumptions: string[];
+  steps: string[];
+  risksList: string[];
+}
+
+export interface DeepworkImplementerResult {
+  summary: string;
+  changes: string;
+  risks: string;
+  status: "ok" | "blocked";
+  deliverable: string;
+  assumptions: string[];
+  nextStep: string;
+}
+
+export type DeepworkStructuredResult = DeepworkPlannerResult | DeepworkImplementerResult;

@@ -1,5 +1,5 @@
-import { workerPayloadSchema } from "./schema.js";
-import type { ReviewResult, WorkerArtifact, WorkerPayload, WorkerResult } from "./types.js";
+import { deepworkImplementerPayloadSchema, deepworkPlannerPayloadSchema, workerPayloadSchema } from "./schema.js";
+import type { ReviewResult, WorkerArtifact, WorkerPayload, WorkerResult, WorkflowTask } from "./types.js";
 
 export function expectedOutputMode(artifactMode?: "schema" | "text"): "schema" | "artifact" {
   return artifactMode === "text" ? "artifact" : "schema";
@@ -33,7 +33,53 @@ export function extractJsonObject(stdout: string): string | null {
   return output.slice(start, end + 1);
 }
 
-export function parseWorkerPayload(stdout: string): WorkerPayload | null {
+function parseDeepworkPayload(
+  stdout: string,
+  mode?: WorkflowTask["structuredMode"],
+): WorkerPayload | null {
+  const jsonBlock = extractJsonObject(stdout);
+  if (!jsonBlock) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
+    if (mode === "deepwork-planner") {
+      const planner = deepworkPlannerPayloadSchema.safeParse(parsed);
+      return planner.success ? planner.data : null;
+    }
+
+    if (mode === "deepwork-implementer") {
+      const implementer = deepworkImplementerPayloadSchema.safeParse(parsed);
+      return implementer.success ? implementer.data : null;
+    }
+
+    const planner = deepworkPlannerPayloadSchema.safeParse(parsed);
+    if (planner.success) {
+      return planner.data;
+    }
+
+    const implementer = deepworkImplementerPayloadSchema.safeParse(parsed);
+    if (implementer.success) {
+      return implementer.data;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function parseWorkerPayload(stdout: string, mode?: WorkflowTask["structuredMode"]): WorkerPayload | null {
+  const deepworkPayload = parseDeepworkPayload(stdout, mode);
+  if (deepworkPayload) {
+    return deepworkPayload;
+  }
+
+  if (mode) {
+    return null;
+  }
+
   const jsonBlock = extractJsonObject(stdout);
   if (!jsonBlock) {
     return null;
@@ -107,10 +153,13 @@ export function reviewWorkerResult(result: WorkerResult): ReviewResult {
 export function reviewWorkerResultForMode(
   result: WorkerResult,
   expected: "schema" | "artifact",
+  mode?: WorkflowTask["structuredMode"],
 ): ReviewResult {
   const issues: string[] = [];
   const output = result.stdout.trim();
-  const payload = result.parsed ?? parseWorkerPayload(result.stdout);
+  const payload = mode
+    ? parseWorkerPayload(result.stdout, mode)
+    : (result.parsed ?? parseWorkerPayload(result.stdout, mode));
   const artifact = result.artifact ?? extractWorkerArtifact(result.stdout);
   const normalizedOutput = output.toLowerCase();
 

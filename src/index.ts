@@ -386,7 +386,7 @@ async function completeDelegatedBatch(rootDir: string, args: Record<string, stri
       finishedAt: now,
       attempts: 1,
     };
-    const review = reviewWorkerResultForMode(workerResult, task.expectedOutput ?? "artifact");
+    const review = reviewWorkerResultForMode(workerResult, task.expectedOutput ?? "artifact", task.structuredMode);
     const completedTask: WorkflowTask = {
       ...task,
       workerResult,
