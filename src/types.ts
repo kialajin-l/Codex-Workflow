@@ -96,6 +96,7 @@ export interface WorkflowTask {
 
 export interface WorkerResult {
   status: "ok" | "failed" | "delegated";
+  source?: "executor" | "fallback-synthesized" | "delegated";
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -146,6 +147,12 @@ export interface BatchSummary {
   completed: number;
   blocked: number;
   delegated: number;
+  resultSources: {
+    executor: number;
+    fallbackSynthesized: number;
+    delegated: number;
+    unknown: number;
+  };
   consensus: "high" | "partial" | "none";
   risks: string[];
   nextSteps: string[];

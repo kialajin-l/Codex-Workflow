@@ -97,6 +97,31 @@ describe("structured fallback", () => {
   });
 });
 
+describe("worker result provenance", () => {
+  it("marks synthesized fallback results explicitly", () => {
+    const fallback = synthesizeStructuredFallback({
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      role: "planner",
+      structuredMode: "deepwork-planner",
+    });
+
+    assert.ok(fallback);
+    const workerResult = {
+      status: "ok" as const,
+      source: "fallback-synthesized" as const,
+      stdout: JSON.stringify(fallback),
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+      parsed: fallback,
+    };
+
+    assert.equal(workerResult.source, "fallback-synthesized");
+  });
+});
+
 describe("artifact review", () => {
   it("rejects clarification responses for artifact tasks", () => {
     const review = reviewWorkerResultForMode({

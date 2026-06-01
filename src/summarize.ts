@@ -6,10 +6,33 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     completed: tasks.filter((task) => task.phase === "completed").length,
     blocked: tasks.filter((task) => task.phase === "blocked").length,
     delegated: tasks.filter((task) => task.phase === "delegated_to_codex").length,
+    resultSources: {
+      executor: 0,
+      fallbackSynthesized: 0,
+      delegated: 0,
+      unknown: 0,
+    },
     consensus: "none",
     risks: [],
     nextSteps: [],
   };
+
+  for (const task of tasks) {
+    switch (task.workerResult?.source) {
+      case "executor":
+        summary.resultSources.executor += 1;
+        break;
+      case "fallback-synthesized":
+        summary.resultSources.fallbackSynthesized += 1;
+        break;
+      case "delegated":
+        summary.resultSources.delegated += 1;
+        break;
+      default:
+        summary.resultSources.unknown += task.workerResult ? 1 : 0;
+        break;
+    }
+  }
 
   const completedTasks = tasks.filter((task) => task.phase === "completed" && task.workerResult?.parsed);
   const allOk = completedTasks.every((task) => task.workerResult?.parsed?.status === "ok");

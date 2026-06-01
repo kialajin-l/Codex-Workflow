@@ -299,6 +299,7 @@ export async function runTaskWithFallbacks(
       task.workerPrompt,
       buildRetryPrompt(task.goal, task.expectedOutput ?? expectedOutputMode(executor.artifactMode), task.role),
     );
+    task.workerResult.source = "executor";
     task.phase = "review";
     task.updatedAt = new Date().toISOString();
     await saveTask(rootDir, task);
@@ -321,6 +322,7 @@ export async function runTaskWithFallbacks(
   if (fallbackPayload) {
     task.workerResult = {
       status: "ok",
+      source: "fallback-synthesized",
       stdout: JSON.stringify(fallbackPayload),
       stderr: "",
       exitCode: 0,
@@ -434,6 +436,7 @@ function createDispatchedTaskRunner(
         updatedAt: now,
         workerResult: {
           status: "delegated",
+          source: "delegated",
           stdout: JSON.stringify({
             action: "codex_subagent_required",
             goal: task.goal,
