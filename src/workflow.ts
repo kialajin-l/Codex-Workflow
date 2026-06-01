@@ -25,6 +25,10 @@ type LoadedWorkflowHooks = {
   skillsDir: string;
 };
 
+type TaskExecutionOverrides = {
+  execMode?: "cli" | "codex";
+};
+
 async function runParallelWithLimit(
   tasks: WorkflowTask[],
   limit: number,
@@ -94,6 +98,7 @@ export async function createTask(
   executorName: string,
   config: WorkflowConfig,
   route?: RouteDecision,
+  overrides?: TaskExecutionOverrides,
 ): Promise<WorkflowTask> {
   const now = new Date().toISOString();
   const expectedOutput = expectedOutputMode(config.executors[executorName]?.artifactMode);
@@ -107,6 +112,7 @@ export async function createTask(
     workerPrompt: buildWorkerPrompt(goal, expectedOutput),
     expectedOutput,
     route,
+    execMode: overrides?.execMode,
   };
   await saveTask(rootDir, task);
   return task;
@@ -303,6 +309,7 @@ export async function runTaskBatch(
   config: WorkflowConfig,
   mode: "serial" | "parallel",
   routes?: RouteDecision[],
+  overrides?: TaskExecutionOverrides,
 ): Promise<WorkflowBatchResult> {
   const startedAt = new Date().toISOString();
   const batchId = crypto.randomUUID();
@@ -310,7 +317,7 @@ export async function runTaskBatch(
   const baseTasks = await Promise.all(
     goals.map((goal, index) => {
       const route = routes?.[index];
-      return createTask(rootDir, goal, route?.executor ?? executorName, config, route);
+      return createTask(rootDir, goal, route?.executor ?? executorName, config, route, overrides);
     }),
   );
   const { taskDispatchHook, afterResultHook, reviewAfterHook, skillsDir } = await loadWorkflowRuntime();

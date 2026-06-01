@@ -222,3 +222,11 @@ export interface DeepworkOnboardingResponse {
     reviewModes: DeepworkOptionSet[];
   };
 }
+
+export interface DeepworkExecutionPlan {
+  mode: "single" | "batch";
+  executor: string;
+  autoRoute: boolean;
+  execMode?: ExecMode;
+  goals: string[];
+}

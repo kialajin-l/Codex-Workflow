@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createDeepworkResponse, deepworkPreferencesPath, loadDeepworkPreferences, saveDeepworkPreferences } from "./deepwork.js";
+import { buildDeepworkExecutionPlan, createDeepworkResponse, deepworkPreferencesPath, loadDeepworkPreferences, saveDeepworkPreferences } from "./deepwork.js";
 
 describe("deepwork preferences", () => {
   const originalHome = process.env.CODEX_WORKFLOW_HOME;
@@ -75,5 +75,61 @@ describe("deepwork preferences", () => {
     const response = await createDeepworkResponse({});
     assert.equal(response.status, "ready");
     assert.match(response.message, /Current default is codex-first \+ proactive-decomposition \+ strict-review/i);
+  });
+
+  it("builds a single-task plan for explicit goals", () => {
+    const plan = buildDeepworkExecutionPlan({
+      executionMode: "cli-first",
+      goalStyle: "explicit-goals",
+      reviewMode: "standard-review",
+      persisted: true,
+      temporaryOverride: false,
+    }, {
+      goal: "Add a hello endpoint",
+    });
+
+    assert.equal(plan.mode, "single");
+    assert.equal(plan.executor, "opencode");
+    assert.equal(plan.execMode, "cli");
+    assert.equal(plan.autoRoute, false);
+    assert.deepEqual(plan.goals, ["Add a hello endpoint"]);
+  });
+
+  it("builds a proactive batch plan from a single goal", () => {
+    const plan = buildDeepworkExecutionPlan({
+      executionMode: "hybrid",
+      goalStyle: "proactive-decomposition",
+      reviewMode: "strict-review",
+      persisted: true,
+      temporaryOverride: false,
+    }, {
+      goal: "Ship a health endpoint",
+      executor: "mock",
+    });
+
+    assert.equal(plan.mode, "batch");
+    assert.equal(plan.executor, "mock");
+    assert.equal(plan.execMode, undefined);
+    assert.equal(plan.autoRoute, true);
+    assert.equal(plan.goals.length, 2);
+    assert.match(plan.goals[0], /produce a short implementation plan/i);
+    assert.match(plan.goals[1], /execute the highest-value next step/i);
+  });
+
+  it("builds a codex-first batch plan from explicit multiple goals", () => {
+    const plan = buildDeepworkExecutionPlan({
+      executionMode: "codex-first",
+      goalStyle: "explicit-goals",
+      reviewMode: "standard-review",
+      persisted: true,
+      temporaryOverride: false,
+    }, {
+      goals: "Task A, Task B",
+    });
+
+    assert.equal(plan.mode, "batch");
+    assert.equal(plan.execMode, "codex");
+    assert.equal(plan.autoRoute, false);
+    assert.deepEqual(plan.goals, ["Task A", "Task B"]);
   });
 });

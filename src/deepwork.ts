@@ -8,6 +8,7 @@ import {
 } from "./schema.js";
 import { codexWorkflowHome } from "./workflow-config.js";
 import type {
+  DeepworkExecutionPlan,
   DeepworkExecutionMode,
   DeepworkGoalStyle,
   DeepworkOnboardingResponse,
@@ -148,4 +149,60 @@ export async function createDeepworkResponse(input: DeepworkSelectionInput): Pro
 
 export function buildDeepworkPreferenceSummary(preferences: DeepworkSessionConfig): string {
   return `${preferences.executionMode} + ${preferences.goalStyle} + ${preferences.reviewMode}`;
+}
+
+function splitDeepworkGoals(raw: string): string[] {
+  return raw
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function buildDeepworkExecutionPlan(
+  preferences: DeepworkSessionConfig,
+  input: {
+    goal?: string;
+    goals?: string;
+    executor?: string;
+  },
+): DeepworkExecutionPlan {
+  const goals = input.goals
+    ? splitDeepworkGoals(input.goals)
+    : input.goal
+      ? [input.goal.trim()].filter(Boolean)
+      : [];
+
+  if (goals.length === 0) {
+    throw new Error("Missing required --goal or --goals for /deepwork execution.");
+  }
+
+  const executor = input.executor || "opencode";
+  const autoRoute = preferences.executionMode === "hybrid";
+  const execMode = preferences.executionMode === "codex-first"
+    ? "codex"
+    : preferences.executionMode === "cli-first"
+      ? "cli"
+      : undefined;
+
+  if (preferences.goalStyle === "proactive-decomposition" && goals.length === 1) {
+    const [goal] = goals;
+    return {
+      mode: "batch",
+      executor,
+      autoRoute,
+      execMode,
+      goals: [
+        `${goal} - produce a short implementation plan`,
+        `${goal} - execute the highest-value next step`,
+      ],
+    };
+  }
+
+  return {
+    mode: goals.length > 1 ? "batch" : "single",
+    executor,
+    autoRoute,
+    execMode,
+    goals,
+  };
 }

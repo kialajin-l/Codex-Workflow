@@ -10,7 +10,7 @@ import { ensureWorkflowConfigDirs, listWorkflowPresets, loadWorkflowPreset, save
 import { loadHooks } from "./hooks.js";
 import { summarizeBatch } from "./summarize.js";
 import { handleHello } from "./routes/hello.js";
-import { createDeepworkResponse } from "./deepwork.js";
+import { buildDeepworkExecutionPlan, createDeepworkResponse, resolveDeepworkSelection } from "./deepwork.js";
 import type { AutoProbeResult, ProbeResult, WorkerResult, WorkflowBatchResult, WorkflowTask } from "./types.js";
 
 function parseArgs(argv: string[]): Record<string, string> {
@@ -305,14 +305,58 @@ async function demoPair(rootDir: string, mode: "serial" | "parallel"): Promise<v
 }
 
 async function deepworkEntry(args: Record<string, string>): Promise<void> {
-  const response = await createDeepworkResponse({
+  const input = {
     executionMode: args["execution-mode"],
     goalStyle: args["goal-style"],
     reviewMode: args["review-mode"],
     remember: args.remember === "true" || args.remember === "1" || "remember" in args,
     temporary: args.temporary === "true" || args.temporary === "1" || "temporary" in args,
+  };
+  const response = await createDeepworkResponse(input);
+
+  if (!args.goal && !args.goals) {
+    console.log(JSON.stringify(response, null, 2));
+    return;
+  }
+
+  const config = await loadConfig(process.cwd());
+  const selection = resolveDeepworkSelection(response.preferences.persisted ? {
+    executionMode: response.preferences.executionMode,
+    goalStyle: response.preferences.goalStyle,
+    reviewMode: response.preferences.reviewMode,
+  } : null, input);
+  const plan = buildDeepworkExecutionPlan(selection, {
+    goal: args.goal,
+    goals: args.goals,
+    executor: args.executor,
   });
-  console.log(JSON.stringify(response, null, 2));
+
+  if (plan.mode === "single") {
+    const task = await createTask(process.cwd(), plan.goals[0], plan.executor, config, undefined, {
+      execMode: plan.execMode,
+    });
+    const completed = await runTask(process.cwd(), task, config);
+    console.log(JSON.stringify({
+      entry: "/deepwork",
+      preferences: response.preferences,
+      plan,
+      result: completed,
+    }, null, 2));
+    return;
+  }
+
+  const routes = plan.autoRoute
+    ? await routeGoals(process.cwd(), plan.goals, config, await loadModelProfiles(process.cwd()))
+    : undefined;
+  const batch = await runTaskBatch(process.cwd(), plan.goals, plan.executor, config, "parallel", routes, {
+    execMode: plan.execMode,
+  });
+  console.log(JSON.stringify({
+    entry: "/deepwork",
+    preferences: response.preferences,
+    plan,
+    result: batch,
+  }, null, 2));
 }
 
 async function completeDelegatedBatch(rootDir: string, args: Record<string, string>): Promise<void> {
@@ -452,7 +496,7 @@ async function main(): Promise<void> {
       console.log("  node dist/index.js workflow-load --name <name>");
       console.log("  node dist/index.js workflow-list");
       console.log("  node dist/index.js workflow-show --name <name>");
-      console.log("  node dist/index.js deepwork [--execution-mode codex-first|cli-first|hybrid] [--goal-style explicit-goals|proactive-decomposition] [--review-mode standard-review|strict-review] [--remember] [--temporary]");
+      console.log("  node dist/index.js deepwork [--execution-mode codex-first|cli-first|hybrid] [--goal-style explicit-goals|proactive-decomposition] [--review-mode standard-review|strict-review] [--remember] [--temporary] [--goal \"task\"] [--goals \"task1,task2\"] [--executor name]");
       console.log("  node dist/index.js complete-delegated --batch <batch-id> [--stdout <text>] [--status ok|failed]");
       console.log("  node dist/index.js demo-subagent");
       console.log("  node dist/index.js demo-serial-pair (runs 3 goals: task A, task B, task C)");
