@@ -35,7 +35,12 @@ function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): s
     "Do not ask follow-up questions.",
     "Do not ask what format to use.",
     "Do not say you need more context.",
+    "Do not ask for clarification or ask the user to specify missing details.",
     "Make reasonable assumptions and proceed.",
+    "You do not have repository or filesystem access in this task.",
+    "Do not claim to have inspected package.json, source files, configs, or local code.",
+    "Do not invent repository contents or quote files you were not given.",
+    "Do not claim to have created, edited, saved, or updated files.",
     "No markdown fences.",
     "No explanation about your process.",
   ];

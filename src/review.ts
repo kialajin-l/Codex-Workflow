@@ -132,9 +132,23 @@ export function reviewWorkerResultForMode(
 
   if (
     expected === "artifact" &&
-    /(need more context|what kind of artifact|what format|which format|follow-up question|\?$)/i.test(normalizedOutput)
+    /(need more context|need clarification|what kind of artifact|what format|which format|please specify|follow-up question|let me check the project context first|\?$)/i.test(normalizedOutput)
   ) {
     issues.push("Worker asked for clarification instead of producing the requested artifact.");
+  }
+
+  if (
+    expected === "artifact" &&
+    /(here is (the|your|this) (project'?s )?`?package\.json`?|i inspected|i reviewed the repository|based on the repository|from the codebase|from package\.json)/i.test(normalizedOutput)
+  ) {
+    issues.push("Worker claimed repository context that was not provided in the task.");
+  }
+
+  if (
+    expected === "artifact" &&
+    /(\bdone\.\b|created|saved|updated|wrote)\s+`?[^`\n]+`?/i.test(normalizedOutput)
+  ) {
+    issues.push("Worker claimed to have written or updated files without file access.");
   }
 
   const decision = issues.length === 0 ? "accept" : "retry";
