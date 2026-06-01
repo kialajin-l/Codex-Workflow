@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import type { ExecutorConfig, WorkerResult } from "./types.js";
+import type { ExecutorConfig, WorkerResult, WorkflowTask } from "./types.js";
 import {
   extractWorkerArtifact,
   parseWorkerPayload,
   reviewWorkerResult,
+  reviewWorkerResultForMode,
   summarizeArtifact,
 } from "./review.js";
 
@@ -511,10 +512,12 @@ function normalizeExecutorOutput(command: string, stdout: string): string {
   return stdout;
 }
 
-function shouldRetryExecutor(
+export function shouldRetryExecutor(
   executor: ExecutorConfig,
   result: WorkerResult,
   retryPrompt?: string,
+  expectedOutput: "schema" | "artifact" = "artifact",
+  structuredMode?: WorkflowTask["structuredMode"],
 ): boolean {
   if (executor.mode === "serve") {
     return false;
@@ -528,7 +531,9 @@ function shouldRetryExecutor(
     return true;
   }
 
-  const review = reviewWorkerResult(result);
+  const review = structuredMode || expectedOutput !== "artifact"
+    ? reviewWorkerResultForMode(result, expectedOutput, structuredMode)
+    : reviewWorkerResult(result);
   return review.decision !== "accept";
 }
 
@@ -612,10 +617,12 @@ export async function runExecutor(
   executor: ExecutorConfig,
   prompt: string,
   retryPrompt?: string,
+  expectedOutput: "schema" | "artifact" = "artifact",
+  structuredMode?: WorkflowTask["structuredMode"],
 ): Promise<WorkerResult> {
   const first = await runExecutorOnce(executor, prompt);
 
-  if (!shouldRetryExecutor(executor, first, retryPrompt)) {
+  if (!shouldRetryExecutor(executor, first, retryPrompt, expectedOutput, structuredMode)) {
     return first;
   }
 

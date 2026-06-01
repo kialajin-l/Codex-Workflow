@@ -298,6 +298,8 @@ export async function runTaskWithFallbacks(
       executor,
       task.workerPrompt,
       buildRetryPrompt(task.goal, task.expectedOutput ?? expectedOutputMode(executor.artifactMode), task.role),
+      task.expectedOutput ?? expectedOutputMode(executor.artifactMode),
+      task.structuredMode,
     );
     task.workerResult.source = "executor";
     task.phase = "review";
