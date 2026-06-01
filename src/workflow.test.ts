@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
-import { buildRetryPrompt, buildWorkerPrompt } from "./workflow.js";
+import { buildRetryPrompt, buildWorkerPrompt, synthesizeStructuredFallback } from "./workflow.js";
 
 describe("workflow prompts", () => {
   it("builds planner schema prompts with concrete output instructions", () => {
@@ -40,7 +40,6 @@ describe("structured payload parsing", () => {
       goal: "Ship a health endpoint",
       assumptions: ["Express app already exists"],
       steps: ["Add route", "Add test"],
-      risksList: ["May require auth bypass"],
     }));
 
     assert.ok(payload);
@@ -65,6 +64,36 @@ describe("structured payload parsing", () => {
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(record.deliverable, "Add GET /health returning 200");
     assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+});
+
+describe("structured fallback", () => {
+  it("synthesizes a planner fallback payload", () => {
+    const payload = synthesizeStructuredFallback({
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      role: "planner",
+      structuredMode: "deepwork-planner",
+    });
+
+    assert.ok(payload);
+    assert.equal(payload.status, "ok");
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.ok(Array.isArray(record.steps));
+  });
+
+  it("synthesizes an implementer fallback payload", () => {
+    const payload = synthesizeStructuredFallback({
+      goal: "Ship a health endpoint - execute the highest-value next step",
+      role: "implementer",
+      structuredMode: "deepwork-implementer",
+    });
+
+    assert.ok(payload);
+    assert.equal(payload.status, "ok");
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(typeof record.deliverable, "string");
+    assert.equal(typeof record.nextStep, "string");
   });
 });
 

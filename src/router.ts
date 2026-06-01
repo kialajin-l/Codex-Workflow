@@ -122,6 +122,19 @@ export async function routeGoals(
   return goals.map((goal) => {
     const role = detectRole(goal);
     const complexity = detectComplexity(goal);
+    if (/ - produce a short implementation plan$/i.test(goal) && availableExecutors.has("opencode-pro")) {
+      return {
+        goal,
+        profile: "deepwork/planner-structured",
+        executor: "opencode-pro",
+        fallbackExecutors: availableExecutors.has("mimo") ? ["mimo"] : [],
+        role: "planner",
+        complexity,
+        reason: "role=planner, structured deepwork planner prefers opencode-pro for schema reliability",
+        attemptedExecutors: ["opencode-pro"],
+      };
+    }
+
     const candidates = Object.entries(profilesConfig.modelProfiles)
       .filter(([, profile]) => config.executors[profile.executor])
       .filter(([, profile]) => availableExecutors.has(profile.executor))

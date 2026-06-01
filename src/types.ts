@@ -242,7 +242,6 @@ export interface DeepworkPlannerResult {
   goal: string;
   assumptions: string[];
   steps: string[];
-  risksList: string[];
 }
 
 export interface DeepworkImplementerResult {
