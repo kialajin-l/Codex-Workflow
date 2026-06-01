@@ -29,6 +29,47 @@ type TaskExecutionOverrides = {
   execMode?: "cli" | "codex";
 };
 
+function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): string[] {
+  const shared = [
+    "Provide one concrete artifact in plain text.",
+    "Do not ask follow-up questions.",
+    "Do not ask what format to use.",
+    "Do not say you need more context.",
+    "Make reasonable assumptions and proceed.",
+    "No markdown fences.",
+    "No explanation about your process.",
+  ];
+
+  if (role === "planner" || /implementation plan/i.test(goal)) {
+    return [
+      ...shared,
+      "Output format:",
+      "1. Goal",
+      "2. Assumptions",
+      "3. Steps",
+      "4. Risks",
+    ];
+  }
+
+  if (role === "reviewer" || /review|audit|check|inspect/i.test(goal)) {
+    return [
+      ...shared,
+      "Output format:",
+      "1. Verdict",
+      "2. Findings",
+      "3. Next step",
+    ];
+  }
+
+  return [
+    ...shared,
+    "Output format:",
+    "1. Deliverable",
+    "2. Assumptions",
+    "3. Next step",
+  ];
+}
+
 async function runParallelWithLimit(
   tasks: WorkflowTask[],
   limit: number,
@@ -54,12 +95,10 @@ async function runParallelWithLimit(
   return results;
 }
 
-export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact"): string {
+export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
   if (expected === "artifact") {
     return [
-      "Provide a short direct artifact only.",
-      "No markdown fences.",
-      "No explanation about your process.",
+      ...buildArtifactInstructions(goal, role),
       `Task: ${goal}`,
     ].join("\n");
   }
@@ -72,13 +111,11 @@ export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact")
   ].join("\n");
 }
 
-export function buildRetryPrompt(goal: string, expected: "schema" | "artifact"): string {
+export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
   if (expected === "artifact") {
     return [
       "Retry.",
-      "Provide a short direct artifact only.",
-      "No markdown fences.",
-      "No explanation about your process.",
+      ...buildArtifactInstructions(goal, role),
       `Task: ${goal}`,
     ].join("\n");
   }
@@ -109,10 +146,12 @@ export async function createTask(
     phase: "planned",
     createdAt: now,
     updatedAt: now,
-    workerPrompt: buildWorkerPrompt(goal, expectedOutput),
+    workerPrompt: buildWorkerPrompt(goal, expectedOutput, route?.role),
     expectedOutput,
     route,
     execMode: overrides?.execMode,
+    role: route?.role,
+    complexity: route?.complexity,
   };
   await saveTask(rootDir, task);
   return task;
@@ -148,7 +187,7 @@ export async function runTaskWithFallbacks(
     task.workerResult = await runExecutor(
       executor,
       task.workerPrompt,
-      buildRetryPrompt(task.goal, task.expectedOutput ?? expectedOutputMode(executor.artifactMode)),
+      buildRetryPrompt(task.goal, task.expectedOutput ?? expectedOutputMode(executor.artifactMode), task.role),
     );
     task.phase = "review";
     task.updatedAt = new Date().toISOString();

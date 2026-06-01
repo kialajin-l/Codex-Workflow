@@ -112,6 +112,7 @@ export function reviewWorkerResultForMode(
   const output = result.stdout.trim();
   const payload = result.parsed ?? parseWorkerPayload(result.stdout);
   const artifact = result.artifact ?? extractWorkerArtifact(result.stdout);
+  const normalizedOutput = output.toLowerCase();
 
   if (result.status !== "ok") {
     issues.push("Worker exited with a non-zero status.");
@@ -127,6 +128,13 @@ export function reviewWorkerResultForMode(
 
   if (expected === "artifact" && !payload && !artifact) {
     issues.push("Worker result is missing a valid JSON payload.");
+  }
+
+  if (
+    expected === "artifact" &&
+    /(need more context|what kind of artifact|what format|which format|follow-up question|\?$)/i.test(normalizedOutput)
+  ) {
+    issues.push("Worker asked for clarification instead of producing the requested artifact.");
   }
 
   const decision = issues.length === 0 ? "accept" : "retry";

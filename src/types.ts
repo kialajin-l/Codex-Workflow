@@ -87,6 +87,8 @@ export interface WorkflowTask {
   mcpEnabled?: string[];
   mcpDisabled?: string[];
   route?: RouteDecision;
+  role?: TaskRole;
+  complexity?: TaskComplexity;
   workerResult?: WorkerResult;
   review?: ReviewResult;
 }
