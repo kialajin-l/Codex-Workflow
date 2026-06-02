@@ -65,6 +65,58 @@ function supportsComplexity(profile: ModelProfile, complexity: TaskComplexity): 
   return complexityRank[profile.maxComplexity] >= complexityRank[complexity];
 }
 
+function routePreferenceScore(
+  profile: ModelProfile,
+  role: TaskRole,
+  complexity: TaskComplexity,
+): number {
+  let score = 0;
+
+  if (profile.preferredRoles.includes(role)) {
+    score += 20;
+  }
+
+  if (profile.executor === "opencode") {
+    if (role === "implementer" && complexity === "low") {
+      score += 10;
+    }
+
+    if (role === "planner" || role === "reviewer" || role === "copywriter" || role === "architect") {
+      score -= 30;
+    }
+
+    if (complexity !== "low") {
+      score -= 15;
+    }
+  }
+
+  if (profile.executor === "opencode-pro") {
+    if (role === "architect" || role === "reviewer") {
+      score += 25;
+    }
+
+    if (role === "debugger" && complexity !== "low") {
+      score += 15;
+    }
+
+    if (complexity === "high") {
+      score += 15;
+    }
+  }
+
+  if (profile.executor === "mimo") {
+    if (role === "planner" || role === "copywriter") {
+      score += 25;
+    }
+
+    if (complexity === "high") {
+      score -= 10;
+    }
+  }
+
+  return score;
+}
+
 function computeFallbackExecutors(
   selectedProfileName: string,
   selectedProfile: ModelProfile,
@@ -81,11 +133,12 @@ function computeFallbackExecutors(
     .filter(([, profile]) => availableExecutors.has(profile.executor))
     .filter(([, profile]) => supportsComplexity(profile, complexity))
     .filter(([, profile]) => profile.costRank > selectedProfile.costRank)
-    .sort((a, b) => a[1].costRank - b[1].costRank)
     .sort((a, b) => {
-      const aRole = a[1].preferredRoles.includes(role) ? 1 : 0;
-      const bRole = b[1].preferredRoles.includes(role) ? 1 : 0;
-      return bRole - aRole;
+      const delta = routePreferenceScore(b[1], role, complexity) - routePreferenceScore(a[1], role, complexity);
+      if (delta !== 0) {
+        return delta;
+      }
+      return a[1].costRank - b[1].costRank;
     })
     .map(([, profile]) => profile.executor);
 
@@ -139,11 +192,12 @@ export async function routeGoals(
       .filter(([, profile]) => config.executors[profile.executor])
       .filter(([, profile]) => availableExecutors.has(profile.executor))
       .filter(([, profile]) => supportsComplexity(profile, complexity))
-      .sort((a, b) => a[1].costRank - b[1].costRank)
       .sort((a, b) => {
-        const aRole = a[1].preferredRoles.includes(role) ? 1 : 0;
-        const bRole = b[1].preferredRoles.includes(role) ? 1 : 0;
-        return bRole - aRole;
+        const delta = routePreferenceScore(b[1], role, complexity) - routePreferenceScore(a[1], role, complexity);
+        if (delta !== 0) {
+          return delta;
+        }
+        return a[1].costRank - b[1].costRank;
       });
 
     if (candidates.length === 0) {
@@ -170,6 +224,7 @@ export async function routeGoals(
       reason: [
         `role=${role}`,
         `complexity=${complexity}`,
+        `preferenceScore=${routePreferenceScore(profile, role, complexity)}`,
         `costRank=${profile.costRank}`,
         `preferredRoles=${profile.preferredRoles.join("/")}`,
       ].join(", "),
