@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { shouldRetryExecutor } from "./executor.js";
+import { normalizeExecutorFailure, shouldRetryExecutor } from "./executor.js";
 
 describe("executor retry policy", () => {
   it("retries schema tasks when the first output is not valid schema", () => {
@@ -35,7 +35,12 @@ describe("executor retry policy", () => {
       },
       {
         status: "ok",
-        stdout: "Deliverable\nAssumptions\nNext step",
+        stdout: [
+          "Deliverable: Add a GET /health endpoint.",
+          "Assumptions:",
+          "- A router already exists.",
+          "Next step: Implement the route and add a focused test.",
+        ].join("\n"),
         stderr: "",
         exitCode: 0,
         startedAt: new Date().toISOString(),
@@ -81,5 +86,35 @@ describe("executor retry policy", () => {
     );
 
     assert.equal(result, true);
+  });
+
+  it("classifies opencode event streams as invalid artifact output before review", () => {
+    const normalized = normalizeExecutorFailure(
+      "opencode",
+      [
+        '{"type":"step_start","timestamp":1}',
+        '{"type":"tool_use","part":{"tool":"read","state":{"status":"completed"}}}',
+        '{"type":"step_finish","timestamp":2}',
+      ].join("\n"),
+      "",
+      0,
+    );
+
+    assert.equal(normalized.status, "failed");
+    assert.equal(normalized.failureCategory, "invalid-json");
+    assert.match(normalized.stderr, /event stream|tool trace/i);
+  });
+
+  it("classifies opencode tool traces as invalid artifact output before review", () => {
+    const normalized = normalizeExecutorFailure(
+      "opencode",
+      '{"type":"tool_use","part":{"tool":"read","state":{"status":"completed","input":{"filePath":"C:\\\\Users\\\\kiala\\\\.codex\\\\codex-workflow\\\\runtime\\\\package.json"}}}}',
+      "",
+      0,
+    );
+
+    assert.equal(normalized.status, "failed");
+    assert.equal(normalized.failureCategory, "invalid-json");
+    assert.match(normalized.stderr, /event stream|tool trace/i);
   });
 });

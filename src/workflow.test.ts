@@ -462,7 +462,7 @@ describe("batch persistence", () => {
         "--batch",
         "batch-test",
         "--stdout",
-        "Architecture artifact",
+        "Deliverable: Auth migration architecture with phased rollout.\nAssumptions:\n- Existing auth modules are separable.\nNext step: Draft the migration sequence by boundary.",
         "--status",
         "ok",
       ],
@@ -596,5 +596,104 @@ describe("artifact review", () => {
 
     assert.equal(review.decision, "retry");
     assert.match(review.issues.join("\n"), /written or updated files/i);
+  });
+
+  it("rejects workflow meta narration instead of an artifact", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: "Let me retry the failed tasks using the workflow CLI's resume feature. The batch file doesn't exist, so I will complete the delegated task and then run the tests.",
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /process narration|workflow operations/i);
+  });
+
+  it("rejects claims about existing artifacts on disk as task output", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: "Both pending artifacts already exist on disk. Updating the workflow state to reflect completion.",
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /process narration|workflow operations/i);
+  });
+
+  it("rejects opencode event stream output instead of an artifact", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: [
+        '{"type":"step_start","timestamp":1}',
+        '{"type":"tool_use","part":{"tool":"read","state":{"status":"completed"}}}',
+        '{"type":"step_finish","timestamp":2}',
+      ].join("\n"),
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /event stream|tool trace|workflow operations/i);
+  });
+
+  it("rejects tool trace output that inspects local files", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: "{\"type\":\"tool_use\",\"part\":{\"tool\":\"read\",\"state\":{\"status\":\"completed\",\"input\":{\"filePath\":\"C:\\\\Users\\\\kiala\\\\.codex\\\\codex-workflow\\\\runtime\\\\package.json\"}}}}",
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /event stream|tool trace|repository context/i);
+  });
+
+  it("accepts artifact output with the expected labeled structure", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: [
+        "Deliverable: Add a GET /health endpoint returning 200 and a JSON status payload.",
+        "Assumptions:",
+        "- The service already has a router module.",
+        "- Focused endpoint changes are acceptable.",
+        "Next step: Implement the route and add a focused verification test.",
+      ].join("\n"),
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "accept");
+  });
+
+  it("rejects generic artifact text without the expected structure", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: "Health endpoint plan ready.",
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /artifact structure|expected sections/i);
   });
 });

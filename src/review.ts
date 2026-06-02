@@ -37,7 +37,7 @@ function readLabeledField(text: string, labels: string[]): string | null {
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     for (const label of labels) {
-      const pattern = new RegExp(`^\\s*${label}\\s*[:：-]\\s*(.+)$`, "i");
+      const pattern = new RegExp(`^\\s*${label}\\s*[:：]\\s*(.+)$`, "i");
       const match = line.match(pattern);
       if (match?.[1]?.trim()) {
         return match[1].trim();
@@ -54,7 +54,7 @@ function readBulletBlock(text: string, labels: string[]): string[] {
 
   for (const line of lines) {
     if (!collecting) {
-      const startsSection = labels.some((label) => new RegExp(`^\\s*${label}\\s*[:：-]?\\s*$`, "i").test(line));
+      const startsSection = labels.some((label) => new RegExp(`^\\s*${label}\\s*[:：]?\\s*$`, "i").test(line));
       if (startsSection) {
         collecting = true;
         continue;
@@ -72,7 +72,7 @@ function readBulletBlock(text: string, labels: string[]): string[] {
       continue;
     }
 
-    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：-]\s*/.test(line) && !/^\s*(?:[-*•]|\d+[.)])/.test(line)) {
+    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：]\s*/.test(line) && !/^\s*(?:[-*•]|\d+[.)])/.test(line)) {
       break;
     }
 
@@ -268,6 +268,40 @@ export function summarizeArtifact(artifact: WorkerArtifact): WorkerPayload {
   };
 }
 
+function hasExpectedArtifactStructure(output: string): boolean {
+  const normalized = output.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  const hasDeliverable = /(?:^|\n)\s*(?:1\.\s*)?deliverable\s*[:\-]/i.test(normalized);
+  const hasGoal = /(?:^|\n)\s*(?:1\.\s*)?goal\s*[:\-]/i.test(normalized);
+  const hasVerdict = /(?:^|\n)\s*(?:1\.\s*)?verdict\s*[:\-]/i.test(normalized);
+  const hasAssumptions = /(?:^|\n)\s*(?:2\.\s*)?assumptions\s*[:\-]/i.test(normalized);
+  const hasSteps = /(?:^|\n)\s*(?:3\.\s*)?steps\s*[:\-]/i.test(normalized);
+  const hasFindings = /(?:^|\n)\s*(?:2\.\s*)?findings\s*[:\-]/i.test(normalized);
+  const hasRisks = /(?:^|\n)\s*(?:4\.\s*)?risks\s*[:\-]/i.test(normalized);
+  const hasNextStep = /(?:^|\n)\s*(?:3\.\s*)?next step\s*[:\-]/i.test(normalized);
+
+  if (hasDeliverable && hasAssumptions && hasNextStep) {
+    return true;
+  }
+
+  if (hasGoal && hasAssumptions && hasSteps) {
+    return true;
+  }
+
+  if (hasVerdict && hasFindings && hasNextStep) {
+    return true;
+  }
+
+  if (hasGoal && hasAssumptions && hasSteps && hasRisks) {
+    return true;
+  }
+
+  return false;
+}
+
 function categorizeWorkerFailure(
   result: WorkerResult,
   expected: "schema" | "artifact",
@@ -343,6 +377,20 @@ export function reviewWorkerResultForMode(
 
   if (
     expected === "artifact" &&
+    /(let me (retry|handle|check|complete|update|verify|run)\b|workflow cli|batch file|workflow state|pending artifacts already exist on disk|delegated task|retry the failed tasks|run the tests?\b)/i.test(normalizedOutput)
+  ) {
+    issues.push("Worker returned process narration or workflow operations instead of the requested artifact.");
+  }
+
+  if (
+    expected === "artifact" &&
+    /("type"\s*:\s*"(?:step_start|step_finish|tool_use)"|"tool"\s*:\s*"(?:read|list|grep|edit|write|bash)"|"sessionid"\s*:|"callid"\s*:|<path>.*<\/path>|<entries>|<content>)/i.test(output)
+  ) {
+    issues.push("Worker returned an event stream or tool trace instead of the requested artifact.");
+  }
+
+  if (
+    expected === "artifact" &&
     /(here is (the|your|this) (project'?s )?`?package\.json`?|i inspected|i reviewed the repository|based on the repository|from the codebase|from package\.json)/i.test(normalizedOutput)
   ) {
     issues.push("Worker claimed repository context that was not provided in the task.");
@@ -353,6 +401,10 @@ export function reviewWorkerResultForMode(
     /(\bdone\.\b|created|saved|updated|wrote)\s+`?[^`\n]+`?/i.test(normalizedOutput)
   ) {
     issues.push("Worker claimed to have written or updated files without file access.");
+  }
+
+  if (expected === "artifact" && !issues.length && !hasExpectedArtifactStructure(output)) {
+    issues.push("Worker result is missing the expected artifact structure or labeled sections.");
   }
 
   return {

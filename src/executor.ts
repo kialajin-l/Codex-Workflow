@@ -456,6 +456,15 @@ function normalizeOpencodeOutput(stdout: string): string {
   return textParts.length > 0 ? textParts.join("\n") : stdout;
 }
 
+function isOpencodeTraceOnly(stdout: string): boolean {
+  const normalized = stdout.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return /("type"\s*:\s*"(?:step_start|step_finish|tool_use)"|"tool"\s*:\s*"(?:read|list|grep|edit|write|bash)"|"sessionID"\s*:|"callID"\s*:|<path>.*<\/path>|<entries>|<content>)/i.test(normalized);
+}
+
 function normalizeClaudeOutput(stdout: string): string {
   const lines = stdout
     .split(/\r?\n/)
@@ -510,6 +519,32 @@ function normalizeExecutorOutput(command: string, stdout: string): string {
   }
 
   return stdout;
+}
+
+export function normalizeExecutorFailure(
+  command: string,
+  stdout: string,
+  stderr: string,
+  exitCode: number,
+): Pick<WorkerResult, "status" | "stdout" | "stderr" | "exitCode" | "failureCategory"> {
+  const normalizedStdout = normalizeExecutorOutput(command, stdout);
+
+  if (command === "opencode" && isOpencodeTraceOnly(normalizedStdout)) {
+    return {
+      status: "failed",
+      stdout: normalizedStdout,
+      stderr: [stderr, "opencode returned an event stream or tool trace instead of a final artifact"].filter(Boolean).join("\n"),
+      exitCode: exitCode === 0 ? 1 : exitCode,
+      failureCategory: "invalid-json",
+    };
+  }
+
+  return {
+    status: exitCode === 0 ? "ok" : "failed",
+    stdout: normalizedStdout,
+    stderr,
+    exitCode,
+  };
 }
 
 export function shouldRetryExecutor(
@@ -579,35 +614,37 @@ async function runExecutorOnce(
 
     child.on("error", (error) => {
       clearTimeout(timer);
-      const normalizedStdout = normalizeExecutorOutput(executor.command, stdout);
-      const output = buildWorkerResultOutput(executor, normalizedStdout);
+      const normalized = normalizeExecutorFailure(executor.command, stdout, `${stderr}\n${error.message}`.trim(), -1);
+      const output = buildWorkerResultOutput(executor, normalized.stdout);
       resolve({
-        status: "failed",
-        stdout: normalizedStdout,
-        stderr: `${stderr}\n${error.message}`.trim(),
-        exitCode: -1,
+        status: normalized.status,
+        stdout: normalized.stdout,
+        stderr: normalized.stderr,
+        exitCode: normalized.exitCode,
         startedAt,
         finishedAt: new Date().toISOString(),
         attempts: 1,
         parsed: output.parsed,
         artifact: output.artifact,
+        failureCategory: normalized.failureCategory,
       });
     });
 
     child.on("close", (code) => {
       clearTimeout(timer);
-      const normalizedStdout = normalizeExecutorOutput(executor.command, stdout);
-      const output = buildWorkerResultOutput(executor, normalizedStdout);
+      const normalized = normalizeExecutorFailure(executor.command, stdout, stderr, code ?? -1);
+      const output = buildWorkerResultOutput(executor, normalized.stdout);
       resolve({
-        status: code === 0 && !timedOut ? "ok" : "failed",
-        stdout: timedOut ? `[spawn executor timed out after ${timeoutMs}ms]` : normalizedStdout,
-        stderr,
-        exitCode: code ?? -1,
+        status: timedOut ? "failed" : normalized.status,
+        stdout: timedOut ? `[spawn executor timed out after ${timeoutMs}ms]` : normalized.stdout,
+        stderr: timedOut ? stderr : normalized.stderr,
+        exitCode: timedOut ? (code ?? -1) : normalized.exitCode,
         startedAt,
         finishedAt: new Date().toISOString(),
         attempts: 1,
         parsed: output.parsed,
         artifact: output.artifact,
+        failureCategory: timedOut ? undefined : normalized.failureCategory,
       });
     });
   });
