@@ -12,6 +12,18 @@
       },
       "fallbackExecutors": ["opencode-pro"]
     },
+    "deepseek/deepseek-chat-serve": {
+      "executor": "opencode-serve",
+      "tags": ["serve", "strict-output", "code"],
+      "maxComplexity": "medium",
+      "preferredRoles": ["implementer", "debugger"],
+      "costRank": 2,
+      "costPer1K": {
+        "input": 0.00027,
+        "output": 0.0011
+      },
+      "fallbackExecutors": ["opencode-pro"]
+    },
     "deepseek/deepseek-v4-pro": {
       "executor": "opencode-pro",
       "tags": ["reasoning", "architecture", "code"],

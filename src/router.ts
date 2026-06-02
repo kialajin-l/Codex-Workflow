@@ -125,6 +125,10 @@ function computeFallbackExecutors(
   profiles: Record<string, ModelProfile>,
   availableExecutors: Set<string>,
 ): string[] {
+  const preferredFallbackOrder = role === "implementer" && complexity === "low"
+    ? ["opencode-serve", "mimo", "opencode-pro"]
+    : [];
+
   const explicit = (selectedProfile.fallbackExecutors ?? [])
     .filter((executor) => availableExecutors.has(executor));
 
@@ -132,8 +136,26 @@ function computeFallbackExecutors(
     .filter(([name, profile]) => name !== selectedProfileName)
     .filter(([, profile]) => availableExecutors.has(profile.executor))
     .filter(([, profile]) => supportsComplexity(profile, complexity))
-    .filter(([, profile]) => profile.costRank > selectedProfile.costRank)
+    .filter(([, profile]) => {
+      if (profile.costRank > selectedProfile.costRank) {
+        return true;
+      }
+
+      return preferredFallbackOrder.includes(profile.executor);
+    })
     .sort((a, b) => {
+      const aPreferred = preferredFallbackOrder.includes(a[1].executor);
+      const bPreferred = preferredFallbackOrder.includes(b[1].executor);
+      if (aPreferred && !bPreferred) {
+        return -1;
+      }
+      if (!aPreferred && bPreferred) {
+        return 1;
+      }
+      if (aPreferred && bPreferred) {
+        return preferredFallbackOrder.indexOf(a[1].executor) - preferredFallbackOrder.indexOf(b[1].executor);
+      }
+
       const delta = routePreferenceScore(b[1], role, complexity) - routePreferenceScore(a[1], role, complexity);
       if (delta !== 0) {
         return delta;
@@ -142,7 +164,21 @@ function computeFallbackExecutors(
     })
     .map(([, profile]) => profile.executor);
 
-  return [...new Set([...explicit, ...implicit])];
+  const combined = [...new Set([...explicit, ...implicit])];
+  return combined.sort((a, b) => {
+    const aPreferred = preferredFallbackOrder.includes(a);
+    const bPreferred = preferredFallbackOrder.includes(b);
+    if (aPreferred && !bPreferred) {
+      return -1;
+    }
+    if (!aPreferred && bPreferred) {
+      return 1;
+    }
+    if (aPreferred && bPreferred) {
+      return preferredFallbackOrder.indexOf(a) - preferredFallbackOrder.indexOf(b);
+    }
+    return 0;
+  });
 }
 
 export async function availableExecutorsFromProbes(
@@ -231,6 +267,26 @@ export async function routeGoals(
       attemptedExecutors: [profile.executor],
     };
   });
+}
+
+export function preferExplicitExecutor(
+  route: RouteDecision,
+  executor: string,
+): RouteDecision {
+  if (route.executor === executor) {
+    return route;
+  }
+
+  const fallbackExecutors = [route.executor, ...route.fallbackExecutors]
+    .filter((candidate, index, values) => candidate !== executor && values.indexOf(candidate) === index);
+
+  return {
+    ...route,
+    executor,
+    fallbackExecutors,
+    attemptedExecutors: [executor],
+    reason: `${route.reason}, explicitExecutor=${executor}`,
+  };
 }
 
 export function summarizeRouteMix(routes: RouteDecision[]): string {

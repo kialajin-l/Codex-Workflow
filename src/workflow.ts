@@ -349,11 +349,24 @@ export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", 
   }
 
   if (expected === "artifact") {
-    return [
+    const retryLines = [
       "Retry.",
       ...buildArtifactInstructions(goal, role),
-      `Task: ${goal}`,
-    ].join("\n");
+    ];
+
+    if (role === "implementer") {
+      retryLines.push(
+        "Only output the three labeled sections exactly once.",
+        "Do not mention the workflow, retries, tasks, batches, logs, state, or existing files.",
+        "Do not output tables, bullet lists, code blocks, file paths, or status summaries.",
+        "Do not say you are retrying, checking, updating, or marking anything complete.",
+        "Do not describe prior attempts or missing context.",
+        "If you are unsure, still provide the smallest concrete Deliverable, Assumptions, and Next step.",
+      );
+    }
+
+    retryLines.push(`Task: ${goal}`);
+    return retryLines.join("\n");
   }
 
   return [

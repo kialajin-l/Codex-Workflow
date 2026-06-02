@@ -3,7 +3,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { loadConfig, loadModelProfiles } from "./config.js";
 import { expectedOutputMode, reviewWorkerResultForMode } from "./review.js";
 import { ensureStateDir, loadBatch, loadTask, saveBatch, saveProbe, saveTask } from "./store.js";
-import { routeGoals, summarizeRouteMix } from "./router.js";
+import { preferExplicitExecutor, routeGoals, summarizeRouteMix } from "./router.js";
 import { runExecutor } from "./executor.js";
 import { createTask, resumeTaskBatch, runTask, runTaskBatch } from "./workflow.js";
 import { ensureWorkflowConfigDirs, listWorkflowPresets, loadWorkflowPreset, saveWorkflowPreset, applyWorkflowPreset, hooksConfigDir } from "./workflow-config.js";
@@ -43,7 +43,15 @@ async function runWorkflow(rootDir: string, args: Record<string, string>): Promi
   const config = await loadConfig(rootDir);
   const executor = args.executor || config.defaultExecutor;
 
-  const task = await createTask(rootDir, goal, executor, config);
+  let route;
+  try {
+    const [computed] = await routeGoals(rootDir, [goal], config, await loadModelProfiles(rootDir));
+    route = preferExplicitExecutor(computed, executor);
+  } catch {
+    route = undefined;
+  }
+
+  const task = await createTask(rootDir, goal, executor, config, route);
   const completed = await runTask(rootDir, task, config);
 
   console.log(JSON.stringify(completed, null, 2));

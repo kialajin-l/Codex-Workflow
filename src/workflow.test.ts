@@ -57,6 +57,9 @@ describe("workflow prompts", () => {
     assert.match(prompt, /^Retry\./i);
     assert.match(prompt, /Output format:/i);
     assert.match(prompt, /Deliverable/i);
+    assert.match(prompt, /Only output the three labeled sections/i);
+    assert.match(prompt, /Do not mention the workflow, retries, tasks, batches, logs, state, or existing files/i);
+    assert.match(prompt, /Do not output tables, bullet lists, code blocks, file paths, or status summaries/i);
   });
 });
 
@@ -319,6 +322,68 @@ describe("worker result provenance", () => {
     }
     assert.equal(parsed?.goal, "Ship a health endpoint");
     assert.deepEqual(parsed?.steps, ["Add route", "Add test"]);
+  });
+
+  it("switches implementer artifact retries to a fallback executor before retrying the same executor", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fallback-"));
+    cleanupDirs.add(rootDir);
+    const primaryPath = path.join(rootDir, "primary.js");
+    const fallbackPath = path.join(rootDir, "fallback.js");
+
+    await fs.writeFile(primaryPath, "process.stdout.write('What would you like me to retry?')\n", "utf8");
+    await fs.writeFile(fallbackPath, [
+      "process.stdout.write([",
+      "  'Deliverable: Implement a helper validation utility with clear input and output constraints.',",
+      "  'Assumptions:',",
+      "  '- The project already has a utilities module.',",
+      "  'Next step: Add the utility and cover one happy path plus one edge case.',",
+      "].join('\\n'));",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "primary",
+      executors: {
+        primary: {
+          command: "node",
+          args: [primaryPath],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+        fallback: {
+          command: "node",
+          args: [fallbackPath],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const route: RouteDecision = {
+      goal: "Implement a helper validation utility",
+      profile: "deepseek/deepseek-v4-flash",
+      executor: "primary",
+      fallbackExecutors: ["fallback"],
+      role: "implementer",
+      complexity: "low",
+      reason: "test",
+      attemptedExecutors: ["primary"],
+    };
+
+    const task = await createTask(
+      rootDir,
+      "Implement a helper validation utility",
+      "primary",
+      config,
+      route,
+      { execMode: "cli" },
+    );
+
+    const completed = await runTaskWithFallbacks(rootDir, task, config);
+    assert.equal(completed.phase, "completed");
+    assert.equal(completed.executor, "fallback");
+    assert.equal(completed.review?.decision, "accept");
+    assert.deepEqual(completed.route?.attemptedExecutors, ["primary", "fallback"]);
+    assert.match(completed.workerResult?.stdout ?? "", /Deliverable:/);
   });
 });
 
