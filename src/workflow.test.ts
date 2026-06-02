@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import type { RouteDecision, WorkflowConfig } from "./types.js";
-import { buildRetryPrompt, buildWorkerPrompt, createTask, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
+import { loadBatch } from "./store.js";
+import { buildRetryPrompt, buildWorkerPrompt, createTask, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
 
 const cleanupDirs = new Set<string>();
 
@@ -318,6 +319,181 @@ describe("worker result provenance", () => {
     }
     assert.equal(parsed?.goal, "Ship a health endpoint");
     assert.deepEqual(parsed?.steps, ["Add route", "Add test"]);
+  });
+});
+
+describe("batch persistence", () => {
+  it("persists batch state before parallel tasks finish", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-batch-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "slow-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "setTimeout(() => {",
+      "  process.stdout.write(JSON.stringify({",
+      '    summary: "Created a plan",',
+      '    changes: "Outlined the next steps",',
+      '    risks: "none",',
+      '    status: "ok"',
+      "  }));",
+      "}, 300);",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batchPromise = runTaskBatch(
+      rootDir,
+      ["Task one", "Task two"],
+      "mock",
+      config,
+      "parallel",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stateDir = path.join(rootDir, ".workflow-state");
+    const stateFiles = await fs.readdir(stateDir);
+    const batchFile = stateFiles.find((file) => file.startsWith("batch."));
+    assert.ok(batchFile, `expected batch file in ${stateDir}, got ${stateFiles.join(", ")}`);
+
+    const batchId = batchFile.replace(/^batch\./, "").replace(/\.json$/, "");
+    const persisted = await loadBatch(rootDir, batchId);
+    assert.equal(persisted.phase, "partial");
+    assert.equal(persisted.tasks.length, 2);
+    assert.equal(persisted.finishedAt, persisted.startedAt);
+
+    const completed = await batchPromise;
+    assert.equal(completed.phase, "completed");
+  });
+
+  it("completes delegated tasks from a persisted partial batch", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-delegated-"));
+    cleanupDirs.add(rootDir);
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('done')"],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const route: RouteDecision = {
+      goal: "Design a migration architecture for auth modules",
+      profile: "deepseek/deepseek-v4-pro",
+      executor: "mock",
+      fallbackExecutors: [],
+      role: "architect",
+      complexity: "high",
+      reason: "test",
+    };
+
+    const delegatedTask = await createTask(rootDir, route.goal, "mock", config, route, { execMode: "codex" });
+    delegatedTask.phase = "delegated_to_codex";
+    delegatedTask.workerResult = {
+      status: "delegated",
+      source: "delegated",
+      stdout: JSON.stringify({ action: "codex_subagent_required", taskId: delegatedTask.id }),
+      stderr: "",
+      exitCode: 0,
+      startedAt: delegatedTask.updatedAt,
+      finishedAt: delegatedTask.updatedAt,
+      attempts: 1,
+    };
+
+    await fs.mkdir(path.join(rootDir, ".workflow-state"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootDir, ".workflow-state", `${delegatedTask.id}.json`),
+      JSON.stringify(delegatedTask, null, 2),
+      "utf8",
+    );
+
+    const batch = {
+      id: "batch-test",
+      executor: "mock",
+      mode: "parallel" as const,
+      goals: [route.goal],
+      startedAt: delegatedTask.createdAt,
+      finishedAt: delegatedTask.createdAt,
+      phase: "partial" as const,
+      tasks: [delegatedTask],
+      summary: {
+        totalTasks: 1,
+        completed: 0,
+        blocked: 0,
+        delegated: 1,
+        resultSources: {
+          executor: 0,
+          executorSalvaged: 0,
+          fallbackSynthesized: 0,
+          delegated: 1,
+          unknown: 0,
+        },
+        consensus: "none" as const,
+        risks: [],
+        nextSteps: ["1 task(s) delegated to Codex - complete them first"],
+      },
+    };
+
+    await fs.writeFile(
+      path.join(rootDir, ".workflow-state", "batch.batch-test.json"),
+      JSON.stringify(batch, null, 2),
+      "utf8",
+    );
+
+    const { spawn } = await import("node:child_process");
+    const cliEntry = path.resolve("dist/index.js");
+    const child = spawn(
+      process.execPath,
+      [
+        cliEntry,
+        "complete-delegated",
+        "--batch",
+        "batch-test",
+        "--stdout",
+        "Architecture artifact",
+        "--status",
+        "ok",
+      ],
+      {
+        cwd: rootDir,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    const exitCode: number = await new Promise((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+
+    assert.equal(exitCode, 0, stderr || stdout);
+    const persisted = await loadBatch(rootDir, "batch-test");
+    assert.equal(persisted.phase, "completed");
+    assert.equal(persisted.summary?.completed, 1);
+    assert.equal(persisted.summary?.delegated, 0);
+    assert.equal(persisted.tasks[0]?.phase, "completed");
+    assert.equal(persisted.tasks[0]?.workerResult?.source, undefined);
   });
 });
 

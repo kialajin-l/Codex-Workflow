@@ -647,6 +647,18 @@ export async function runTaskBatch(
   );
   const { taskDispatchHook, afterResultHook, reviewAfterHook, skillsDir } = await loadWorkflowRuntime();
   const tasks = await prepareTasksForExecution(rootDir, baseTasks, taskDispatchHook, skillsDir);
+  await saveBatch(rootDir, {
+    id: batchId,
+    executor: executorName,
+    mode,
+    goals,
+    startedAt,
+    finishedAt: startedAt,
+    phase: "partial",
+    routes,
+    tasks,
+    summary: summarizeBatch(tasks),
+  });
   const runDispatchedTask = createDispatchedTaskRunner(rootDir, batchId, config, afterResultHook);
 
   const completedTasks = mode === "parallel"
