@@ -14,7 +14,7 @@ import {
 import { logBatchEnd, logBatchStart, logTaskComplete } from "./logger.js";
 import type { RouteDecision, WorkflowBatchResult, WorkflowConfig, WorkflowTask } from "./types.js";
 import { runExecutor } from "./executor.js";
-import { expectedOutputMode, extractJsonObject, reviewWorkerResultForMode } from "./review.js";
+import { expectedOutputMode, extractJsonObject, parseStructuredWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { saveBatch, saveTask } from "./store.js";
 import { summarizeBatch } from "./summarize.js";
 import type { DeepworkImplementerResult, DeepworkPlannerResult } from "./types.js";
@@ -29,6 +29,11 @@ type LoadedWorkflowHooks = {
 type TaskExecutionOverrides = {
   execMode?: "cli" | "codex";
 };
+
+type RecoveryAction =
+  | { kind: "retry-same-executor"; timeoutMs?: number; prompt?: string; expectedOutput?: "schema" | "artifact" }
+  | { kind: "switch-executor" }
+  | { kind: "fallback" };
 
 function isDeepworkStructuredGoal(goal: string): boolean {
   return / - produce a short implementation plan$| - execute the highest-value next step$/i.test(goal);
@@ -102,6 +107,24 @@ function stripDeepworkSuffix(goal: string): string {
   return goal
     .replace(/ - produce a short implementation plan$/i, "")
     .replace(/ - execute the highest-value next step$/i, "");
+}
+
+function isPureJsonObject(stdout: string): boolean {
+  const trimmed = stdout
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return false;
+  }
+
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function synthesizeStructuredFallback(task: Pick<WorkflowTask, "goal" | "role" | "structuredMode">): DeepworkPlannerResult | DeepworkImplementerResult | null {
@@ -188,6 +211,89 @@ function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): s
     "2. Assumptions",
     "3. Next step",
   ];
+}
+
+function classifyRecoveryAction(
+  task: WorkflowTask,
+  executorName: string,
+): RecoveryAction {
+  const failure = task.workerResult?.failureCategory;
+
+  if (failure === "timeout") {
+    return {
+      kind: "retry-same-executor",
+      timeoutMs: Math.max(60000, 2 * 30000),
+    };
+  }
+
+  if (
+    task.structuredMode
+    && (failure === "invalid-json" || failure === "invalid-structured-text")
+  ) {
+    return {
+      kind: "retry-same-executor",
+      expectedOutput: "artifact",
+      prompt: [
+        ...buildArtifactInstructions(task.goal, task.role),
+        "Your previous JSON output was invalid.",
+        "Return the same content as labeled plain text so it can be converted into structured fields.",
+        `Task: ${task.goal}`,
+      ].join("\n"),
+    };
+  }
+
+  if (task.route && executorName !== task.route.fallbackExecutors.at(-1)) {
+    return { kind: "switch-executor" };
+  }
+
+  return { kind: "fallback" };
+}
+
+async function executeAndReviewTaskAttempt(
+  rootDir: string,
+  task: WorkflowTask,
+  executor: WorkflowConfig["executors"][string],
+  prompt: string,
+  expectedOutput: "schema" | "artifact",
+): Promise<NonNullable<WorkflowTask["review"]>> {
+  const reviewExpectedOutput = task.structuredMode && expectedOutput === "artifact"
+    ? "schema"
+    : expectedOutput;
+
+  task.workerResult = await runExecutor(
+    executor,
+    prompt,
+    buildRetryPrompt(task.goal, expectedOutput, task.role),
+    expectedOutput,
+    task.structuredMode,
+  );
+  task.workerResult.source = "executor";
+  task.phase = "review";
+  task.updatedAt = new Date().toISOString();
+  await saveTask(rootDir, task);
+
+  const structuredPayload = task.structuredMode
+    ? parseStructuredWorkerPayload(task.workerResult.stdout, task.structuredMode)
+    : null;
+  if (structuredPayload) {
+    task.workerResult.parsed = structuredPayload;
+  }
+
+  task.review = reviewWorkerResultForMode(
+    task.workerResult,
+    reviewExpectedOutput,
+    task.structuredMode,
+  );
+
+  if (
+    task.review.decision === "accept"
+    && task.workerResult.parsed
+    && !isPureJsonObject(task.workerResult.stdout)
+  ) {
+    task.workerResult.source = "executor-salvaged";
+  }
+
+  return task.review;
 }
 
 async function runParallelWithLimit(
@@ -301,7 +407,8 @@ export async function runTaskWithFallbacks(
 
   const attemptedExecutors: string[] = [];
 
-  for (const executorName of executorsToTry) {
+  for (let index = 0; index < executorsToTry.length; index += 1) {
+    const executorName = executorsToTry[index];
     const executor = config.executors[executorName];
     if (!executor) {
       continue;
@@ -317,37 +424,46 @@ export async function runTaskWithFallbacks(
     task.updatedAt = new Date().toISOString();
     await saveTask(rootDir, task);
 
-    task.workerResult = await runExecutor(
-      executor,
+    const effectiveExecutor = { ...executor };
+    const initialExpectedOutput = task.expectedOutput ?? expectedOutputMode(effectiveExecutor.artifactMode);
+    const initialReview = await executeAndReviewTaskAttempt(
+      rootDir,
+      task,
+      effectiveExecutor,
       task.workerPrompt,
-      buildRetryPrompt(task.goal, task.expectedOutput ?? expectedOutputMode(executor.artifactMode), task.role),
-      task.expectedOutput ?? expectedOutputMode(executor.artifactMode),
-      task.structuredMode,
-    );
-    task.workerResult.source = "executor";
-    task.phase = "review";
-    task.updatedAt = new Date().toISOString();
-    await saveTask(rootDir, task);
-
-    task.review = reviewWorkerResultForMode(
-      task.workerResult,
-      task.expectedOutput ?? expectedOutputMode(executor.artifactMode),
-      task.structuredMode,
+      initialExpectedOutput,
     );
 
-    if (
-      task.review.decision === "accept"
-      && task.workerResult.parsed
-      && !extractJsonObject(task.workerResult.stdout)
-    ) {
-      task.workerResult.source = "executor-salvaged";
-    }
-
-    if (task.review.decision === "accept") {
+    if (initialReview.decision === "accept") {
       task.phase = "completed";
       task.updatedAt = new Date().toISOString();
       await saveTask(rootDir, task);
       return task;
+    }
+
+    const recovery = classifyRecoveryAction(task, executorName);
+    if (recovery.kind === "retry-same-executor") {
+      const recoveredExecutor = {
+        ...effectiveExecutor,
+        timeoutMs: recovery.timeoutMs ?? effectiveExecutor.timeoutMs,
+      };
+      const recoveryPrompt = recovery.prompt ?? task.workerPrompt;
+      const recoveryExpectedOutput = recovery.expectedOutput ?? task.expectedOutput ?? expectedOutputMode(recoveredExecutor.artifactMode);
+
+      const recoveryReview = await executeAndReviewTaskAttempt(
+        rootDir,
+        task,
+        recoveredExecutor,
+        recoveryPrompt,
+        recoveryExpectedOutput,
+      );
+
+      if (recoveryReview.decision === "accept") {
+        task.phase = "completed";
+        task.updatedAt = new Date().toISOString();
+        await saveTask(rootDir, task);
+        return task;
+      }
     }
   }
 

@@ -1,7 +1,22 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
-import { buildRetryPrompt, buildWorkerPrompt, synthesizeStructuredFallback } from "./workflow.js";
+import type { RouteDecision, WorkflowConfig } from "./types.js";
+import { buildRetryPrompt, buildWorkerPrompt, createTask, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
+
+const cleanupDirs = new Set<string>();
+
+afterEach(async () => {
+  await Promise.all(
+    [...cleanupDirs].map(async (dir) => {
+      await fs.rm(dir, { recursive: true, force: true });
+      cleanupDirs.delete(dir);
+    }),
+  );
+});
 
 describe("workflow prompts", () => {
   it("builds planner schema prompts with concrete output instructions", () => {
@@ -29,6 +44,18 @@ describe("workflow prompts", () => {
     assert.match(prompt, /Every required field in the schema must be present exactly once\./i);
     assert.match(prompt, /\"deliverable\":\"string\"/i);
     assert.match(prompt, /\"nextStep\":\"string\"/i);
+  });
+
+  it("builds artifact recovery prompts that request labeled plain text", () => {
+    const prompt = buildRetryPrompt(
+      "Ship a health endpoint - execute the highest-value next step",
+      "artifact",
+      "implementer",
+    );
+
+    assert.match(prompt, /^Retry\./i);
+    assert.match(prompt, /Output format:/i);
+    assert.match(prompt, /Deliverable/i);
   });
 });
 
@@ -87,6 +114,28 @@ describe("structured payload parsing", () => {
     assert.deepEqual(record.steps, ["Add route", "Add test"]);
   });
 
+  it("salvages planner payload from wrapped json output", () => {
+    const payload = parseWorkerPayload([
+      "Here is the plan:",
+      "```json",
+      JSON.stringify({
+        summary: "Created a plan",
+        changes: "Outlined the next steps",
+        risks: "Endpoint wiring may touch routing",
+        status: "ok",
+        goal: "Ship a health endpoint",
+        assumptions: ["Express app already exists"],
+        steps: ["Add route", "Add test"],
+      }, null, 2),
+      "```",
+    ].join("\n"), "deepwork-planner");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.deepEqual(record.steps, ["Add route", "Add test"]);
+  });
+
   it("salvages implementer payload from labeled text", () => {
     const payload = parseWorkerPayload([
       "Summary: Proposed the next change",
@@ -102,6 +151,25 @@ describe("structured payload parsing", () => {
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(record.deliverable, "Add GET /health returning 200");
     assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+
+  it("salvages planner payload from full-width labels and unicode bullets", () => {
+    const payload = parseWorkerPayload([
+      "Summary： Created a plan",
+      "Changes： Outlined the next steps",
+      "Risks： Endpoint wiring may touch routing",
+      "Goal： Ship a health endpoint",
+      "Assumptions：",
+      "• Express app already exists",
+      "Steps：",
+      "• Add route",
+      "• Add test",
+    ].join("\n"), "deepwork-planner");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.deepEqual(record.steps, ["Add route", "Add test"]);
   });
 
   it("classifies salvageable planner text without JSON", () => {
@@ -176,9 +244,109 @@ describe("worker result provenance", () => {
 
     assert.equal(workerResult.source, "fallback-synthesized");
   });
+
+  it("marks recovery text output as executor-salvaged for structured tasks", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-recovery-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "mock-executor.js");
+    const counterPath = path.join(rootDir, "counter.txt");
+    await fs.writeFile(mockScriptPath, [
+      "const fs = require('node:fs');",
+      `const counterPath = ${JSON.stringify(counterPath)};`,
+      "const current = Number(fs.existsSync(counterPath) ? fs.readFileSync(counterPath, 'utf8') : '0') + 1;",
+      "fs.writeFileSync(counterPath, String(current));",
+      "if (current >= 3) {",
+      "  process.stdout.write([",
+      "    'Summary: Created a plan',",
+      "    'Changes: Outlined the next steps',",
+      "    'Risks: Endpoint wiring may touch routing',",
+      "    'Goal: Ship a health endpoint',",
+      "    'Assumptions:',",
+      "    '- Express app already exists',",
+      "    'Steps:',",
+      "    '- Add route',",
+      "    '- Add test',",
+      "  ].join('\\n'));",
+      "} else {",
+      "  process.stdout.write('not valid json');",
+      "}",
+      "",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const route: RouteDecision = {
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      profile: "deepwork/planner-structured",
+      executor: "mock",
+      fallbackExecutors: [],
+      role: "planner",
+      complexity: "medium",
+      reason: "test",
+    };
+
+    const task = await createTask(
+      rootDir,
+      "Ship a health endpoint - produce a short implementation plan",
+      "mock",
+      config,
+      route,
+      { execMode: "cli" },
+    );
+
+    const completed = await runTaskWithFallbacks(rootDir, task, config);
+    assert.equal(completed.phase, "completed");
+    assert.equal(completed.workerResult?.source, "executor-salvaged");
+    assert.equal(completed.review?.decision, "accept");
+    const parsed = completed.workerResult?.parsed as Record<string, unknown> | undefined;
+    if (parsed?.goal === undefined) {
+      assert.fail(JSON.stringify({
+        stdout: completed.workerResult?.stdout,
+        parsed,
+        review: completed.review,
+      }, null, 2));
+    }
+    assert.equal(parsed?.goal, "Ship a health endpoint");
+    assert.deepEqual(parsed?.steps, ["Add route", "Add test"]);
+  });
 });
 
 describe("artifact review", () => {
+  it("rejects generic artifact summaries for structured schema tasks", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: "not valid json",
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+      parsed: {
+        summary: "not valid json",
+        changes: "See artifact content.",
+        risks: "Artifact fallback was used instead of strict schema output.",
+        status: "ok",
+      },
+      artifact: {
+        type: "text",
+        content: "not valid json",
+      },
+    }, "schema", "deepwork-planner");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /missing a valid json payload/i);
+  });
+
   it("rejects clarification responses for artifact tasks", () => {
     const review = reviewWorkerResultForMode({
       status: "ok",

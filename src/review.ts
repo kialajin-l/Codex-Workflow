@@ -72,7 +72,7 @@ function readBulletBlock(text: string, labels: string[]): string[] {
       continue;
     }
 
-    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：-]\s*/.test(line) && !/^\s*[-*•\d]/.test(line)) {
+    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：-]\s*/.test(line) && !/^\s*(?:[-*•]|\d+[.)])/.test(line)) {
       break;
     }
 
@@ -164,8 +164,15 @@ function parseDeepworkPayload(
   return salvageDeepworkPayload(stdout, mode);
 }
 
+export function parseStructuredWorkerPayload(
+  stdout: string,
+  mode?: WorkflowTask["structuredMode"],
+): WorkerPayload | null {
+  return parseDeepworkPayload(stdout, mode);
+}
+
 export function parseWorkerPayload(stdout: string, mode?: WorkflowTask["structuredMode"]): WorkerPayload | null {
-  const deepworkPayload = parseDeepworkPayload(stdout, mode);
+  const deepworkPayload = parseStructuredWorkerPayload(stdout, mode);
   if (deepworkPayload) {
     return deepworkPayload;
   }
@@ -216,6 +223,27 @@ export function parseWorkerPayload(stdout: string, mode?: WorkflowTask["structur
   }
 }
 
+export function isStructuredPayload(
+  payload: WorkerPayload | null | undefined,
+  mode?: WorkflowTask["structuredMode"],
+): boolean {
+  if (!payload) {
+    return false;
+  }
+
+  if (mode === "deepwork-planner") {
+    const candidate = payload as unknown as Record<string, unknown>;
+    return typeof candidate.goal === "string" && Array.isArray(candidate.steps);
+  }
+
+  if (mode === "deepwork-implementer") {
+    const candidate = payload as unknown as Record<string, unknown>;
+    return typeof candidate.deliverable === "string" && typeof candidate.nextStep === "string";
+  }
+
+  return true;
+}
+
 export function extractWorkerArtifact(stdout: string): WorkerArtifact | null {
   const content = stdout.trim();
   if (!content) {
@@ -245,6 +273,7 @@ function categorizeWorkerFailure(
   expected: "schema" | "artifact",
   payload: WorkerPayload | null,
   artifact: WorkerArtifact | null,
+  mode?: WorkflowTask["structuredMode"],
 ): WorkerResult["failureCategory"] | undefined {
   const output = result.stdout.trim();
   const stderr = result.stderr.toLowerCase();
@@ -260,7 +289,7 @@ function categorizeWorkerFailure(
     return "empty-output";
   }
 
-  if (expected === "schema" && !payload) {
+  if (expected === "schema" && !isStructuredPayload(payload, mode)) {
     return extractJsonObject(result.stdout) ? "invalid-structured-text" : "invalid-json";
   }
 
@@ -283,11 +312,11 @@ export function reviewWorkerResultForMode(
   const issues: string[] = [];
   const output = result.stdout.trim();
   const payload = mode
-    ? parseWorkerPayload(result.stdout, mode)
+    ? parseStructuredWorkerPayload(result.stdout, mode)
     : (result.parsed ?? parseWorkerPayload(result.stdout, mode));
   const artifact = result.artifact ?? extractWorkerArtifact(result.stdout);
   const normalizedOutput = output.toLowerCase();
-  result.failureCategory = categorizeWorkerFailure(result, expected, payload, artifact);
+  result.failureCategory = categorizeWorkerFailure(result, expected, payload, artifact, mode);
 
   if (result.status !== "ok") {
     issues.push("Worker exited with a non-zero status.");
@@ -297,7 +326,7 @@ export function reviewWorkerResultForMode(
     issues.push("Worker returned empty stdout.");
   }
 
-  if (expected === "schema" && !payload) {
+  if (expected === "schema" && !isStructuredPayload(payload, mode)) {
     issues.push("Worker result is missing a valid JSON payload.");
   }
 

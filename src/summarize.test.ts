@@ -45,6 +45,18 @@ describe("batch summary", () => {
         },
       }),
       createTask({
+        id: "salvaged-task",
+        workerResult: {
+          status: "ok",
+          source: "executor-salvaged",
+          stdout: "Summary: salvaged",
+          stderr: "",
+          exitCode: 0,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        },
+      }),
+      createTask({
         id: "delegated-task",
         phase: "delegated_to_codex",
         workerResult: {
@@ -72,7 +84,7 @@ describe("batch summary", () => {
 
     assert.deepEqual(summary.resultSources, {
       executor: 1,
-      executorSalvaged: 0,
+      executorSalvaged: 1,
       fallbackSynthesized: 1,
       delegated: 1,
       unknown: 1,
