@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExecutorConfig, WorkerResult, WorkflowTask } from "./types.js";
 import {
@@ -521,6 +523,92 @@ function normalizeExecutorOutput(command: string, stdout: string): string {
   return stdout;
 }
 
+function candidateWindowsCommands(command: string): string[] {
+  if (/[\\/]/.test(command) || path.isAbsolute(command)) {
+    const ext = path.extname(command);
+    return ext ? [command] : [command, `${command}.exe`, `${command}.cmd`, `${command}.bat`, `${command}.ps1`];
+  }
+
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const names = path.extname(command)
+    ? [command]
+    : [`${command}.exe`, `${command}.cmd`, `${command}.bat`, `${command}.ps1`, command];
+  return pathDirs.flatMap((dir) => names.map((name) => path.join(dir, name)));
+}
+
+function resolveWindowsCommand(command: string): string | null {
+  for (const candidate of candidateWindowsCommands(command)) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveNpmCmdExe(cmdPath: string): string | null {
+  try {
+    const content = readFileSync(cmdPath, "utf8");
+    const match = content.match(/"%dp0%\\([^"]+?\.exe)"/i);
+    if (!match?.[1]) {
+      return null;
+    }
+    const resolved = path.join(path.dirname(cmdPath), match[1]);
+    return existsSync(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSpawnInvocation(command: string, args: string[], prompt: string): {
+  command: string;
+  args: string[];
+  shell: boolean;
+} {
+  if (process.platform !== "win32") {
+    return {
+      command,
+      args: [...args, prompt],
+      shell: false,
+    };
+  }
+
+  const promptArg = prompt.replace(/\r?\n/g, " ");
+  const resolved = resolveWindowsCommand(command);
+  if (!resolved) {
+    return {
+      command,
+      args: [...args, promptArg],
+      shell: true,
+    };
+  }
+
+  const ext = path.extname(resolved).toLowerCase();
+  if (ext === ".cmd" || ext === ".bat") {
+    const npmExe = resolveNpmCmdExe(resolved);
+    if (npmExe) {
+      return {
+        command: npmExe,
+        args: [...args, promptArg],
+        shell: false,
+      };
+    }
+  }
+
+  if (ext === ".ps1") {
+    return {
+      command: "powershell.exe",
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolved, ...args, promptArg],
+      shell: false,
+    };
+  }
+
+  return {
+    command: resolved,
+    args: [...args, promptArg],
+    shell: false,
+  };
+}
+
 export function normalizeExecutorFailure(
   command: string,
   stdout: string,
@@ -583,8 +671,9 @@ async function runExecutorOnce(
   const startedAt = new Date().toISOString();
 
   return new Promise((resolve) => {
-    const child = spawn(executor.command, [...executor.args, prompt], {
-      shell: true,
+    const invocation = buildSpawnInvocation(executor.command, executor.args, prompt);
+    const child = spawn(invocation.command, invocation.args, {
+      shell: invocation.shell,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const timeoutMs = executor.timeoutMs ?? 300000;

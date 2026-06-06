@@ -1,6 +1,20 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeExecutorFailure, shouldRetryExecutor } from "./executor.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { normalizeExecutorFailure, runExecutor, shouldRetryExecutor } from "./executor.js";
+
+const cleanupDirs = new Set<string>();
+
+afterEach(async () => {
+  await Promise.all(
+    [...cleanupDirs].map(async (dir) => {
+      await fs.rm(dir, { recursive: true, force: true });
+      cleanupDirs.delete(dir);
+    }),
+  );
+});
 
 describe("executor retry policy", () => {
   it("retries schema tasks when the first output is not valid schema", () => {
@@ -116,5 +130,39 @@ describe("executor retry policy", () => {
     assert.equal(normalized.status, "failed");
     assert.equal(normalized.failureCategory, "invalid-json");
     assert.match(normalized.stderr, /event stream|tool trace/i);
+  });
+
+  it("passes multiline prompts to spawn executors as one argument", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-executor-argv-"));
+    cleanupDirs.add(rootDir);
+    const scriptPath = path.join(rootDir, "argv-check.cjs");
+    await fs.writeFile(scriptPath, [
+      "const prompt = process.argv[2] ?? '';",
+      "const ok = prompt.includes('Task: multiline smoke marker');",
+      "process.stdout.write(JSON.stringify({",
+      "  summary: 'argv check',",
+      "  changes: ok ? 'saw full prompt' : 'missing marker',",
+      "  risks: 'none',",
+      "  status: ok ? 'ok' : 'blocked'",
+      "}));",
+    ].join("\n"), "utf8");
+
+    const result = await runExecutor(
+      {
+        command: process.execPath,
+        args: [scriptPath],
+        timeoutMs: 5000,
+      },
+      [
+        "Return exactly one JSON object.",
+        "Schema: {\"summary\":\"string\",\"changes\":\"string\",\"risks\":\"string\",\"status\":\"ok|blocked\"}",
+        "Task: multiline smoke marker",
+      ].join("\n"),
+      undefined,
+      "schema",
+    );
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.parsed?.status, "ok");
   });
 });

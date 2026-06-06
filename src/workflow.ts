@@ -17,6 +17,7 @@ import { runExecutor } from "./executor.js";
 import { expectedOutputMode, extractJsonObject, parseStructuredWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { saveBatch, saveTask } from "./store.js";
 import { summarizeBatch } from "./summarize.js";
+import { verifyTaskCompletion } from "./verify.js";
 import type { DeepworkImplementerResult, DeepworkPlannerResult } from "./types.js";
 
 type LoadedWorkflowHooks = {
@@ -36,7 +37,17 @@ type RecoveryAction =
   | { kind: "fallback" };
 
 function isDeepworkStructuredGoal(goal: string): boolean {
-  return / - produce a short implementation plan$| - execute the highest-value next step$/i.test(goal);
+  return / - produce a short implementation plan$| - implement the highest-value next step and return a concrete deliverable$| - execute the highest-value next step$/i.test(goal);
+}
+
+export function inferDeepworkRole(goal: string): "planner" | "implementer" | undefined {
+  if (/ - produce a short implementation plan$/i.test(goal)) {
+    return "planner";
+  }
+  if (/ - implement the highest-value next step and return a concrete deliverable$/i.test(goal) || / - execute the highest-value next step$/i.test(goal)) {
+    return "implementer";
+  }
+  return undefined;
 }
 
 function deepworkSchemaForRole(role?: WorkflowTask["role"]): string | null {
@@ -83,6 +94,9 @@ function buildDeepworkSchemaInstructions(goal: string, role?: WorkflowTask["role
 
   if (role === "implementer") {
     lines.splice(lines.length - 2, 0,
+      "For implementer tasks: you MUST execute an observable action (write code, run a test, or produce a concrete artifact).",
+      "For implementer tasks: if you cannot execute, set status to blocked and explain why in risks.",
+      "For implementer tasks: a pure analysis or status report is NOT an implementer deliverable.",
       "For implementer tasks: deliverable must describe the concrete next change.",
       "For implementer tasks: nextStep must be one immediate follow-up action.",
     );
@@ -106,6 +120,7 @@ function deepworkStructuredModeForRole(role?: WorkflowTask["role"]): WorkflowTas
 function stripDeepworkSuffix(goal: string): string {
   return goal
     .replace(/ - produce a short implementation plan$/i, "")
+    .replace(/ - implement the highest-value next step and return a concrete deliverable$/i, "")
     .replace(/ - execute the highest-value next step$/i, "");
 }
 
@@ -387,6 +402,7 @@ export async function createTask(
   overrides?: TaskExecutionOverrides,
 ): Promise<WorkflowTask> {
   const now = new Date().toISOString();
+  const inferredRole = route?.role ?? inferDeepworkRole(goal);
   const expectedOutput = isDeepworkStructuredGoal(goal)
     ? "schema"
     : expectedOutputMode(config.executors[executorName]?.artifactMode);
@@ -397,13 +413,13 @@ export async function createTask(
     phase: "planned",
     createdAt: now,
     updatedAt: now,
-    workerPrompt: buildWorkerPrompt(goal, expectedOutput, route?.role),
+    workerPrompt: buildWorkerPrompt(goal, expectedOutput, inferredRole),
     expectedOutput,
     route,
     execMode: overrides?.execMode,
-    role: route?.role,
+    role: inferredRole,
     complexity: route?.complexity,
-    structuredMode: isDeepworkStructuredGoal(goal) ? deepworkStructuredModeForRole(route?.role) : undefined,
+    structuredMode: isDeepworkStructuredGoal(goal) ? deepworkStructuredModeForRole(inferredRole) : undefined,
   };
   await saveTask(rootDir, task);
   return task;
@@ -448,7 +464,7 @@ export async function runTaskWithFallbacks(
     );
 
     if (initialReview.decision === "accept") {
-      task.phase = "completed";
+      task.phase = resolveTaskPhase(task);
       task.updatedAt = new Date().toISOString();
       await saveTask(rootDir, task);
       return task;
@@ -472,7 +488,7 @@ export async function runTaskWithFallbacks(
       );
 
       if (recoveryReview.decision === "accept") {
-        task.phase = "completed";
+        task.phase = resolveTaskPhase(task);
         task.updatedAt = new Date().toISOString();
         await saveTask(rootDir, task);
         return task;
@@ -498,7 +514,7 @@ export async function runTaskWithFallbacks(
       task.expectedOutput ?? "schema",
       task.structuredMode,
     );
-    task.phase = task.review.decision === "accept" ? "completed" : "blocked";
+    task.phase = resolveTaskPhase(task);
     task.updatedAt = new Date().toISOString();
     await saveTask(rootDir, task);
     return task;
@@ -540,6 +556,28 @@ function summarizeBatchPhase(tasks: WorkflowTask[]): "completed" | "blocked" | "
   }
 
   return "completed";
+}
+
+
+/**
+ * Centralized task phase resolution.
+ * parsed.status === "blocked" is a hard constraint that review cannot override.
+ */
+export function resolveTaskPhase(task: WorkflowTask): WorkflowTask["phase"] {
+  // (1) Hard constraint: if the verifier or worker self-reported blocked, phase MUST be blocked
+  const verifyResult = verifyTaskCompletion(task);
+  if (verifyResult.verdict === "blocked") {
+    return "blocked";
+  }
+  if (task.workerResult?.parsed?.status === "blocked") {
+    return "blocked";
+  }
+  // (2) review.accept → completed (even if verify is unverified — defer to review)
+  if (task.review?.decision === "accept") {
+    return "completed";
+  }
+  // (3) All execution paths exhausted without review acceptance → blocked
+  return "blocked";
 }
 
 async function loadWorkflowRuntime(): Promise<LoadedWorkflowHooks> {
@@ -602,8 +640,8 @@ function createDispatchedTaskRunner(
           stdout: JSON.stringify({
             action: "codex_subagent_required",
             goal: task.goal,
-            role: task.route?.role ?? "implementer",
-            complexity: task.route?.complexity ?? "medium",
+            role: task.role ?? task.route?.role ?? "implementer",
+            complexity: task.complexity ?? task.route?.complexity ?? "medium",
             taskId: task.id,
           }),
           stderr: "",

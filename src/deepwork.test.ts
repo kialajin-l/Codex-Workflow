@@ -113,7 +113,7 @@ describe("deepwork preferences", () => {
     assert.equal(plan.autoRoute, true);
     assert.equal(plan.goals.length, 2);
     assert.match(plan.goals[0], /produce a short implementation plan/i);
-    assert.match(plan.goals[1], /execute the highest-value next step/i);
+    assert.match(plan.goals[1], /implement the highest-value next step and return a concrete deliverable/i);
   });
 
   it("builds a codex-first batch plan from explicit multiple goals", () => {

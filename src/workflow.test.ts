@@ -4,9 +4,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
-import type { RouteDecision, WorkflowConfig } from "./types.js";
+import { verifyTaskCompletion } from "./verify.js";
+import type { RouteDecision, WorkflowConfig, WorkflowTask } from "./types.js";
 import { loadBatch } from "./store.js";
-import { buildRetryPrompt, buildWorkerPrompt, createTask, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
+import { buildRetryPrompt, buildWorkerPrompt, createTask, inferDeepworkRole, resolveTaskPhase, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
 
 const cleanupDirs = new Set<string>();
 
@@ -213,8 +214,8 @@ describe("structured fallback", () => {
   it("synthesizes an implementer fallback payload", () => {
     const payload = synthesizeStructuredFallback({
       goal: "Ship a health endpoint - execute the highest-value next step",
-      role: "implementer",
-      structuredMode: "deepwork-implementer",
+      role: "implementer" as const,
+      structuredMode: "deepwork-implementer" as const,
     });
 
     assert.ok(payload);
@@ -283,7 +284,7 @@ describe("worker result provenance", () => {
         mock: {
           command: "node",
           args: [mockScriptPath],
-          artifactMode: "text",
+          artifactMode: "text" as const,
           timeoutMs: 5000,
         },
       },
@@ -295,7 +296,7 @@ describe("worker result provenance", () => {
       executor: "mock",
       fallbackExecutors: [],
       role: "planner",
-      complexity: "medium",
+      complexity: "medium" as const,
       reason: "test",
     };
 
@@ -346,13 +347,13 @@ describe("worker result provenance", () => {
         primary: {
           command: "node",
           args: [primaryPath],
-          artifactMode: "text",
+          artifactMode: "text" as const,
           timeoutMs: 5000,
         },
         fallback: {
           command: "node",
           args: [fallbackPath],
-          artifactMode: "text",
+          artifactMode: "text" as const,
           timeoutMs: 5000,
         },
       },
@@ -363,7 +364,7 @@ describe("worker result provenance", () => {
       profile: "deepseek/deepseek-v4-flash",
       executor: "primary",
       fallbackExecutors: ["fallback"],
-      role: "implementer",
+      role: "implementer" as const,
       complexity: "low",
       reason: "test",
       attemptedExecutors: ["primary"],
@@ -448,7 +449,7 @@ describe("batch persistence", () => {
         mock: {
           command: "node",
           args: ["-e", "process.stdout.write('done')"],
-          artifactMode: "text",
+          artifactMode: "text" as const,
           timeoutMs: 5000,
         },
       },
@@ -559,6 +560,170 @@ describe("batch persistence", () => {
     assert.equal(persisted.summary?.delegated, 0);
     assert.equal(persisted.tasks[0]?.phase, "completed");
     assert.equal(persisted.tasks[0]?.workerResult?.source, undefined);
+  });
+
+  it("completes only the delegated task selected by task id", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-delegated-target-"));
+    cleanupDirs.add(rootDir);
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('done')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const plannerTask = await createTask(
+      rootDir,
+      "Ship a health endpoint - produce a short implementation plan",
+      "mock",
+      config,
+      undefined,
+      { execMode: "codex" },
+    );
+    plannerTask.phase = "delegated_to_codex";
+    plannerTask.workerResult = {
+      status: "delegated",
+      source: "delegated",
+      stdout: JSON.stringify({ action: "codex_subagent_required", taskId: plannerTask.id }),
+      stderr: "",
+      exitCode: 0,
+      startedAt: plannerTask.updatedAt,
+      finishedAt: plannerTask.updatedAt,
+      attempts: 1,
+    };
+
+    const implementerTask = await createTask(
+      rootDir,
+      "Ship a health endpoint - implement the highest-value next step and return a concrete deliverable",
+      "mock",
+      config,
+      undefined,
+      { execMode: "codex" },
+    );
+    implementerTask.phase = "delegated_to_codex";
+    implementerTask.workerResult = {
+      status: "delegated",
+      source: "delegated",
+      stdout: JSON.stringify({ action: "codex_subagent_required", taskId: implementerTask.id }),
+      stderr: "",
+      exitCode: 0,
+      startedAt: implementerTask.updatedAt,
+      finishedAt: implementerTask.updatedAt,
+      attempts: 1,
+    };
+
+    await fs.mkdir(path.join(rootDir, ".workflow-state"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootDir, ".workflow-state", `${plannerTask.id}.json`),
+      JSON.stringify(plannerTask, null, 2),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(rootDir, ".workflow-state", `${implementerTask.id}.json`),
+      JSON.stringify(implementerTask, null, 2),
+      "utf8",
+    );
+
+    const batch = {
+      id: "batch-targeted",
+      executor: "mock",
+      mode: "parallel" as const,
+      goals: [plannerTask.goal, implementerTask.goal],
+      startedAt: plannerTask.createdAt,
+      finishedAt: plannerTask.createdAt,
+      phase: "partial" as const,
+      tasks: [plannerTask, implementerTask],
+      summary: {
+        totalTasks: 2,
+        completed: 0,
+        blocked: 0,
+        delegated: 2,
+        resultSources: {
+          executor: 0,
+          executorSalvaged: 0,
+          fallbackSynthesized: 0,
+          delegated: 2,
+          unknown: 0,
+        },
+        consensus: "none" as const,
+        risks: [],
+        nextSteps: ["2 task(s) delegated to Codex - complete them first"],
+      },
+    };
+
+    await fs.writeFile(
+      path.join(rootDir, ".workflow-state", "batch.batch-targeted.json"),
+      JSON.stringify(batch, null, 2),
+      "utf8",
+    );
+
+    const plannerResultPath = path.join(rootDir, "planner-result.json");
+    await fs.writeFile(
+      plannerResultPath,
+      JSON.stringify({
+        summary: "planner complete",
+        changes: "created a concrete plan",
+        risks: "none",
+        status: "ok",
+        goal: "Ship a health endpoint",
+        assumptions: ["router exists"],
+        steps: ["Add route", "Add focused test"],
+      }),
+      "utf8",
+    );
+
+    const { spawn } = await import("node:child_process");
+    const cliEntry = path.resolve("dist/index.js");
+    const child = spawn(
+      process.execPath,
+      [
+        cliEntry,
+        "complete-delegated",
+        "--batch",
+        "batch-targeted",
+        "--task-id",
+        plannerTask.id,
+        "--stdout-file",
+        plannerResultPath,
+        "--status",
+        "ok",
+      ],
+      {
+        cwd: rootDir,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    const exitCode: number = await new Promise((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+
+    assert.equal(exitCode, 0, stderr || stdout);
+    const persisted = await loadBatch(rootDir, "batch-targeted");
+    assert.equal(persisted.phase, "partial");
+    assert.equal(persisted.summary?.completed, 1);
+    assert.equal(persisted.summary?.delegated, 1);
+    assert.equal(persisted.tasks[0]?.id, plannerTask.id);
+    assert.equal(persisted.tasks[0]?.phase, "completed");
+    assert.equal(persisted.tasks[1]?.id, implementerTask.id);
+    assert.equal(persisted.tasks[1]?.phase, "delegated_to_codex");
   });
 });
 
@@ -760,5 +925,429 @@ describe("artifact review", () => {
 
     assert.equal(review.decision, "retry");
     assert.match(review.issues.join("\n"), /artifact structure|expected sections/i);
+  });
+});
+
+describe("regression: blocked status overrides review accept", () => {
+  it("parsed.status=blocked with review.accept → phase is blocked, not completed", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-e1-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "mock-blocked.js");
+
+    // Executor returns valid JSON that self-reports blocked
+    await fs.writeFile(mockScriptPath, [
+      'process.stdout.write(JSON.stringify({',
+      '  summary: "Cannot proceed",',
+      '  changes: "None — blocked by missing dependency",',
+      '  risks: "Missing upstream service",',
+      '  status: "blocked"',
+      '}));',
+    ].join("\n"), "utf8");
+
+    const config = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const route = {
+      goal: "Ship a health endpoint",
+      profile: "test/blocked",
+      executor: "mock",
+      fallbackExecutors: [],
+      role: "implementer" as const,
+      complexity: "medium" as const,
+      reason: "test",
+    };
+
+    const task = await createTask(
+      rootDir,
+      "Ship a health endpoint",
+      "mock",
+      config,
+      route,
+      { execMode: "cli" },
+    );
+
+    const completed = await runTaskWithFallbacks(rootDir, task, config);
+
+    // Even if review accepts the valid JSON, phase must be blocked
+    assert.equal(completed.phase, "blocked",
+      `Expected phase "blocked" but got "${completed.phase}". Review: ${JSON.stringify(completed.review)}`);
+    assert.ok(completed.workerResult?.parsed);
+    assert.equal(completed.workerResult?.parsed.status, "blocked");
+  });
+});
+
+describe("regression: verify analysis-only implementer output", () => {
+  it("verifyTaskCompletion blocks analysis-only implementer output", () => {
+    const task = {
+      id: "test",
+      goal: "Implement auth middleware",
+      executor: "mock",
+      phase: "review" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer" as const,
+      role: "implementer" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: [
+          "I analyzed the repository and found that the auth middleware is missing.",
+          "Based on the project structure, I would recommend adding Express middleware",
+          "that validates JWT tokens. Let me check the current setup first.",
+          "Here is my analysis of the current state.",
+        ].join("\n"),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    } as WorkflowTask;
+
+    const result = verifyTaskCompletion(task);
+    assert.equal(result.verdict, "blocked",
+      `Expected blocked but got ${result.verdict}: ${result.reason}`);
+    assert.match(result.reason, /pure analysis/i);
+  });
+
+  it("verifyTaskCompletion accepts implementer output with a deliverable", () => {
+    const task = {
+      id: "test",
+      goal: "Implement auth middleware",
+      executor: "mock",
+      phase: "review" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer" as const,
+      role: "implementer" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: [
+          "Deliverable: Added JWT validation middleware to the Express app.",
+          "Created the auth module with token verification and role-based access.",
+          "Assumptions: Express app already exists with a router module.",
+        ].join("\n"),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    } as WorkflowTask;
+
+    const result = verifyTaskCompletion(task);
+    assert.notEqual(result.verdict, "blocked",
+      `Should not block deliverable output: ${result.reason}`);
+  });
+});
+
+describe("regression: blocked status with fallback payload", () => {
+  it("synthesizeStructuredFallback always produces ok status", () => {
+    const fallback = synthesizeStructuredFallback({
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      role: "planner",
+      structuredMode: "deepwork-planner",
+    });
+    assert.ok(fallback);
+    assert.equal(fallback.status, "ok",
+      "Fallback payload should always have status=ok — blocked only comes from real executors");
+  });
+});
+
+
+describe("regression: resolveTaskPhase terminal state contract", () => {
+  it("resolves to blocked when parsed.status=blocked even with accept review (Fix 1)", () => {
+    const phase = resolveTaskPhase({
+      id: "test",
+      goal: "Test",
+      executor: "mock",
+      phase: "review",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer",
+      role: "implementer" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: JSON.stringify({ summary: "x", changes: "y", risks: "z", status: "blocked", deliverable: "", assumptions: ["a"], nextStep: "n" }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        parsed: { summary: "x", changes: "y", risks: "z", status: "blocked" },
+      },
+      review: { decision: "accept" as const, summary: "accepted", issues: [], reviewedAt: new Date().toISOString() },
+    } as WorkflowTask);
+    assert.equal(phase, "blocked", "resolveTaskPhase must return blocked when parsed.status=blocked");
+  });
+
+  it("resolves to blocked when review does not accept (no more non-terminal 'review' state) (Fix 2)", () => {
+    const phase = resolveTaskPhase({
+      id: "test",
+      goal: "Test",
+      executor: "mock",
+      phase: "review",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-planner",
+      role: "planner" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "fallback-synthesized",
+        stdout: JSON.stringify({ summary: "x", changes: "y", risks: "z", status: "ok" }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        parsed: { summary: "x", changes: "y", risks: "z", status: "ok" },
+      },
+      review: { decision: "retry" as const, summary: "needs retry", issues: ["invalid"], reviewedAt: new Date().toISOString() },
+    } as WorkflowTask);
+    assert.equal(phase, "blocked", "resolveTaskPhase must return blocked when review does not accept");
+  });
+
+  it("resolves to blocked for non-structured delegated task with blocked JSON payload (Fix non-structured)", () => {
+    const phase = resolveTaskPhase({
+      id: "test",
+      goal: "Test",
+      executor: "mock",
+      phase: "review",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      // No structuredMode — simulates a non-structured delegated task
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: JSON.stringify({ summary: "done", changes: "none", risks: "n/a", status: "blocked" }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        parsed: { summary: "done", changes: "none", risks: "n/a", status: "blocked" },
+      },
+      // review would accept valid JSON, but resolveTaskPhase vetoes on parsed.status="blocked"
+      review: { decision: "accept" as const, summary: "accepted", issues: [], reviewedAt: new Date().toISOString() },
+    } as WorkflowTask);
+    assert.equal(phase, "blocked",
+      "Non-structured delegated task with blocked payload must resolve to blocked, not completed");
+  });
+});
+
+describe("inferDeepworkRole", () => {
+  it("infers planner from standard suffix", () => {
+    assert.equal(inferDeepworkRole("Ship a health endpoint - produce a short implementation plan"), "planner");
+  });
+
+  it("infers implementer from implement suffix", () => {
+    assert.equal(inferDeepworkRole("Ship a health endpoint - implement the highest-value next step and return a concrete deliverable"), "implementer");
+  });
+
+  it("infers implementer from execute suffix (legacy variant)", () => {
+    assert.equal(inferDeepworkRole("Ship a health endpoint - execute the highest-value next step"), "implementer");
+  });
+
+  it("returns undefined for non-deepwork goals", () => {
+    assert.equal(inferDeepworkRole("Add a hello endpoint"), undefined);
+  });
+});
+
+describe("deepwork task creation without route", () => {
+  it("assigns planner role and structuredMode for planner goal without route", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-no-route-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [] } },
+    };
+    const task = await createTask(
+      rootDir,
+      "Ship a health endpoint - produce a short implementation plan",
+      "mock",
+      config,
+    );
+    assert.equal(task.role, "planner");
+    assert.equal(task.structuredMode, "deepwork-planner");
+    assert.equal(task.expectedOutput, "schema");
+    assert.match(task.workerPrompt, /"goal":"string"/);
+    assert.match(task.workerPrompt, /"steps":\[/);
+  });
+
+  it("assigns implementer role and structuredMode for implementer goal without route", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-no-route-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [] } },
+    };
+    const task = await createTask(
+      rootDir,
+      "Ship a health endpoint - implement the highest-value next step and return a concrete deliverable",
+      "mock",
+      config,
+    );
+    assert.equal(task.role, "implementer");
+    assert.equal(task.structuredMode, "deepwork-implementer");
+    assert.equal(task.expectedOutput, "schema");
+    assert.match(task.workerPrompt, /"deliverable":"string"/);
+    assert.match(task.workerPrompt, /"nextStep":"string"/);
+  });
+
+  it("prefers route role over inferred role", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-route-priority-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [] } },
+    };
+    const route: RouteDecision = {
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      profile: "test",
+      executor: "mock",
+      fallbackExecutors: [],
+      role: "architect",
+      complexity: "high",
+      reason: "test",
+      attemptedExecutors: ["mock"],
+    };
+    const task = await createTask(
+      rootDir,
+      route.goal,
+      "mock",
+      config,
+      route,
+    );
+    assert.equal(task.role, "architect");
+  });
+
+  it("does not infer role for non-deepwork goals", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-no-infer-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [], artifactMode: "text" } },
+    };
+    const task = await createTask(
+      rootDir,
+      "Add a hello endpoint",
+      "mock",
+      config,
+    );
+    assert.equal(task.role, undefined);
+    assert.equal(task.structuredMode, undefined);
+  });
+});
+
+describe("deepwork batch integration without route", () => {
+  it("creates correct structuredMode and prompt for proactive-decomposition goals without auto-route", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-batch-integ-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "mock-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stdout.write(JSON.stringify({",
+      "  summary: 'done',",
+      "  changes: 'none',",
+      "  risks: 'none',",
+      "  status: 'ok'",
+      "}));",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const plannerGoal = "Smoke deepwork flow - produce a short implementation plan";
+    const implementerGoal = "Smoke deepwork flow - implement the highest-value next step and return a concrete deliverable";
+
+    const plannerTask = await createTask(rootDir, plannerGoal, "mock", config);
+    const implementerTask = await createTask(rootDir, implementerGoal, "mock", config);
+
+    assert.equal(plannerTask.role, "planner", "planner task must have role=planner without route");
+    assert.equal(plannerTask.structuredMode, "deepwork-planner", "planner task must have structuredMode=deepwork-planner without route");
+    assert.match(plannerTask.workerPrompt, /"goal":"string"/,
+      "planner prompt must contain deepwork planner schema");
+    assert.match(plannerTask.workerPrompt, /"steps":\[/,
+      "planner prompt must contain steps array in schema");
+
+    assert.equal(implementerTask.role, "implementer", "implementer task must have role=implementer without route");
+    assert.equal(implementerTask.structuredMode, "deepwork-implementer", "implementer task must have structuredMode=deepwork-implementer without route");
+    assert.match(implementerTask.workerPrompt, /"deliverable":"string"/,
+      "implementer prompt must contain deepwork implementer schema");
+    assert.match(implementerTask.workerPrompt, /"nextStep":"string"/,
+      "implementer prompt must contain nextStep in schema");
+  });
+});
+
+describe("delegated payload uses task.role", () => {
+  it("delegated planner goal without route carries role=planner, not implementer", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-delegated-role-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [] } },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      ["Ship a health endpoint - produce a short implementation plan"],
+      "mock",
+      config,
+      "parallel",
+      undefined,
+      { execMode: "codex" },
+    );
+
+    const delegatedTask = batch.tasks[0];
+    assert.equal(delegatedTask?.phase, "delegated_to_codex");
+    assert.equal(delegatedTask?.role, "planner", "task.role must be planner from deepwork suffix inference");
+    const payload = JSON.parse(delegatedTask.workerResult!.stdout) as Record<string, unknown>;
+    assert.equal(payload.role, "planner",
+      "delegated payload role must be planner, not fallback implementer");
+  });
+
+  it("delegated implementer goal without route carries role=implementer", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-delegated-role-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: { mock: { command: "mock", args: [] } },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      ["Ship a health endpoint - implement the highest-value next step and return a concrete deliverable"],
+      "mock",
+      config,
+      "parallel",
+      undefined,
+      { execMode: "codex" },
+    );
+
+    const delegatedTask = batch.tasks[0];
+    assert.equal(delegatedTask?.phase, "delegated_to_codex");
+    assert.equal(delegatedTask?.role, "implementer");
+    const payload = JSON.parse(delegatedTask.workerResult!.stdout) as Record<string, unknown>;
+    assert.equal(payload.role, "implementer",
+      "delegated payload role must be implementer");
   });
 });

@@ -38,9 +38,24 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     }
   }
 
-  const completedTasks = tasks.filter((task) => task.phase === "completed" && task.workerResult?.parsed);
-  const allOk = completedTasks.every((task) => task.workerResult?.parsed?.status === "ok");
-  summary.consensus = completedTasks.length === 0 ? "none" : allOk ? "high" : "partial";
+  // Consensus: requires every task to be completed with a reliable parsed payload.
+  // If any non-completed task has a blocked payload, or any completed task lacks parsed,
+  // consensus can never be "high".
+  const completedWithParsed = tasks.filter((task) => task.phase === "completed" && task.workerResult?.parsed);
+  const completedWithoutParsed = tasks.some((task) => task.phase === "completed" && !task.workerResult?.parsed);
+  const nonCompletedWithBlocked = tasks.some(
+    (task) => task.phase !== "completed" && task.workerResult?.parsed?.status === "blocked",
+  );
+
+  if (completedWithParsed.length === 0) {
+    summary.consensus = "none";
+  } else if (summary.completed !== summary.totalTasks || nonCompletedWithBlocked || completedWithoutParsed) {
+    // Any unresolved blocked payload or unreliable completed task → not high
+    summary.consensus = "partial";
+  } else {
+    const allOk = completedWithParsed.every((task) => task.workerResult?.parsed?.status === "ok");
+    summary.consensus = allOk ? "high" : "partial";
+  }
 
   for (const task of tasks) {
     const risk = task.workerResult?.parsed?.risks;
@@ -55,7 +70,13 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
   if (summary.delegated > 0) {
     summary.nextSteps.push(`${summary.delegated} task(s) delegated to Codex - complete them first`);
   }
-  if (summary.completed === summary.totalTasks) {
+  // Only suggest deployment when every task is cleanly completed with high consensus
+  if (
+    summary.blocked === 0 &&
+    summary.delegated === 0 &&
+    summary.consensus === "high" &&
+    summary.completed === summary.totalTasks
+  ) {
     summary.nextSteps.push("All tasks completed - proceed to integration or deployment");
   }
 

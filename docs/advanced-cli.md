@@ -106,3 +106,21 @@ node dist/index.js workflow-list
 - [Getting Started](./getting-started.md)
 - [Customizing Workflows](./customizing-workflows.md)
 - [Plugin Structure](./plugin-structure.md)
+
+---
+
+## Delegated Task Result Writeback
+
+When a batch contains `delegated_to_codex` tasks, write back each result by task id:
+
+```bash
+node dist/index.js complete-delegated --batch <batch-id> --task-id <task-id> --stdout-file result.json --status ok
+```
+
+If the plugin was installed through the wrapper, use:
+
+```bash
+cwf complete-delegated --batch <batch-id> --task-id <task-id> --stdout-file result.json --status ok
+```
+
+For multi-task batches, complete one delegated task id at a time so planner and implementer results do not overwrite each other. Prefer `--stdout-file` for structured JSON results, especially on Windows, because direct `--stdout` JSON can be damaged by shell quote parsing.

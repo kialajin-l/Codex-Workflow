@@ -172,5 +172,7 @@ When the runtime returns a task with `phase: "delegated_to_codex"`:
 1. read `task.workerResult.stdout`
 2. parse the JSON payload
 3. execute the delegated task in Codex
-4. write the result back into task state
+4. write the result back into task state with `complete-delegated --batch <batch-id> --task-id <task-id> --stdout-file <result.json>`
 5. continue the review flow
+
+For batches with multiple delegated tasks, complete one task id at a time. Do not reuse one delegated result for the whole batch unless the user explicitly wants the same result applied to every pending delegated task.

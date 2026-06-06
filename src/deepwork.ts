@@ -193,7 +193,7 @@ export function buildDeepworkExecutionPlan(
       execMode,
       goals: [
         `${goal} - produce a short implementation plan`,
-        `${goal} - execute the highest-value next step`,
+        `${goal} - implement the highest-value next step and return a concrete deliverable`,
       ],
     };
   }

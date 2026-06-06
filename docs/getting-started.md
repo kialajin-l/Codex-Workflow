@@ -217,3 +217,16 @@ cwf run-batch --resume <batch-id>
 - [advanced-cli.md](./advanced-cli.md)
 - [customizing-workflows.md](./customizing-workflows.md)
 - [hooks-reference.md](./hooks-reference.md)
+
+---
+
+## Delegated Task Result Writeback
+
+If a task is `delegated_to_codex`, inspect the batch, complete the delegated work in Codex, then write back the result for that specific task id:
+
+```bash
+cwf status --batch <batch-id>
+cwf complete-delegated --batch <batch-id> --task-id <task-id> --stdout-file result.json --status ok
+```
+
+For batches with more than one delegated task, repeat this command once per task id. Do not reuse one result for every delegated task unless that is explicitly intended. Prefer `--stdout-file` for structured JSON results so shell quote parsing does not corrupt the payload.

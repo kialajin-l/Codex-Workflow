@@ -1,11 +1,11 @@
 import path from "node:path";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { loadConfig, loadModelProfiles } from "./config.js";
-import { expectedOutputMode, reviewWorkerResultForMode } from "./review.js";
+import { expectedOutputMode, parseStructuredWorkerPayload, parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { ensureStateDir, loadBatch, loadTask, saveBatch, saveProbe, saveTask } from "./store.js";
 import { preferExplicitExecutor, routeGoals, summarizeRouteMix } from "./router.js";
 import { runExecutor } from "./executor.js";
-import { createTask, resumeTaskBatch, runTask, runTaskBatch } from "./workflow.js";
+import { createTask, resumeTaskBatch, runTask, runTaskBatch, resolveTaskPhase } from "./workflow.js";
 import { ensureWorkflowConfigDirs, listWorkflowPresets, loadWorkflowPreset, saveWorkflowPreset, applyWorkflowPreset, hooksConfigDir } from "./workflow-config.js";
 import { loadHooks } from "./hooks.js";
 import { summarizeBatch } from "./summarize.js";
@@ -372,6 +372,7 @@ async function completeDelegatedBatch(rootDir: string, args: Record<string, stri
   if (!batchId) {
     throw new Error("Missing required --batch");
   }
+  const taskId = args["task-id"];
 
   const batch = await loadBatch(rootDir, batchId);
   const now = new Date().toISOString();
@@ -383,8 +384,14 @@ async function completeDelegatedBatch(rootDir: string, args: Record<string, stri
       tasks.push(task);
       continue;
     }
+    if (taskId && task.id !== taskId) {
+      tasks.push(task);
+      continue;
+    }
 
-    const prompt = args.stdout || `Delegated task completed: ${task.goal}`;
+    const prompt = args["stdout-file"]
+      ? await readFile(path.resolve(rootDir, args["stdout-file"]), "utf8")
+      : args.stdout || `Delegated task completed: ${task.goal}`;
     const workerResult: WorkerResult = {
       status: args.status === "failed" ? "failed" : "ok",
       stdout: prompt,
@@ -395,19 +402,33 @@ async function completeDelegatedBatch(rootDir: string, args: Record<string, stri
       attempts: 1,
     };
     const review = reviewWorkerResultForMode(workerResult, task.expectedOutput ?? "artifact", task.structuredMode);
+    if (task.structuredMode) {
+      const structuredPayload = parseStructuredWorkerPayload(workerResult.stdout, task.structuredMode);
+      if (structuredPayload) {
+        workerResult.parsed = structuredPayload;
+      }
+    } else {
+      const genericPayload = parseWorkerPayload(workerResult.stdout);
+      if (genericPayload) {
+        workerResult.parsed = genericPayload;
+      }
+    }
     const completedTask: WorkflowTask = {
       ...task,
       workerResult,
       review,
-      phase: review.decision === "accept" ? "completed" : "blocked",
       updatedAt: now,
     };
+    completedTask.phase = resolveTaskPhase(completedTask);
     await saveTask(rootDir, completedTask);
     tasks.push(completedTask);
     updated = true;
   }
 
   if (!updated) {
+    if (taskId) {
+      throw new Error(`Batch ${batchId} has no delegated_to_codex task matching --task-id ${taskId}.`);
+    }
     throw new Error(`Batch ${batchId} has no delegated_to_codex tasks.`);
   }
 
@@ -505,7 +526,7 @@ async function main(): Promise<void> {
       console.log("  node dist/index.js workflow-list");
       console.log("  node dist/index.js workflow-show --name <name>");
       console.log("  node dist/index.js deepwork [--execution-mode codex-first|cli-first|hybrid] [--goal-style explicit-goals|proactive-decomposition] [--review-mode standard-review|strict-review] [--remember] [--temporary] [--goal \"task\"] [--goals \"task1,task2\"] [--executor name]");
-      console.log("  node dist/index.js complete-delegated --batch <batch-id> [--stdout <text>] [--status ok|failed]");
+      console.log("  node dist/index.js complete-delegated --batch <batch-id> [--task-id <task-id>] [--stdout <text>|--stdout-file <path>] [--status ok|failed]");
       console.log("  node dist/index.js demo-subagent");
       console.log("  node dist/index.js demo-serial-pair (runs 3 goals: task A, task B, task C)");
       console.log("  node dist/index.js demo-parallel (runs 2 goals: task A, task B)");
