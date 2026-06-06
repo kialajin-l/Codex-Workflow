@@ -89,6 +89,29 @@ function installRuntimeBundle() {
   copyFile("model-profiles.json", runtimeDir);
 }
 
+function readPluginVersion() {
+  const manifestPath = requirePath(path.join(".codex-plugin", "plugin.json"));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (typeof manifest.version !== "string" || manifest.version.length === 0) {
+    throw new Error("Missing plugin version in .codex-plugin/plugin.json");
+  }
+  return manifest.version;
+}
+
+function hasInstalledCommandCache(marketplaceName, pluginVersion) {
+  const commandPath = path.join(
+    codexHomeDir,
+    "plugins",
+    "cache",
+    marketplaceName,
+    "codex-workflow",
+    pluginVersion,
+    "commands",
+    "deepwork.md",
+  );
+  return fs.existsSync(commandPath);
+}
+
 function copyPluginAsset(relativePath) {
   const srcPath = requirePath(relativePath);
   const destPath = path.join(localPluginDir, relativePath);
@@ -153,9 +176,15 @@ function ensureMarketplaceEntry() {
 }
 
 function installCodexPlugin(marketplaceName) {
+  const pluginVersion = readPluginVersion();
+  if (hasInstalledCommandCache(marketplaceName, pluginVersion)) {
+    console.log(`Codex plugin cache already contains /deepwork for version ${pluginVersion}; skipping reinstall.`);
+    return;
+  }
+
   const selector = `codex-workflow@${marketplaceName}`;
   const result = spawnSync("codex", ["plugin", "add", selector], {
-    stdio: "inherit",
+    encoding: "utf8",
     shell: process.platform === "win32",
   });
 
@@ -166,8 +195,24 @@ function installCodexPlugin(marketplaceName) {
   }
 
   if (typeof result.status === "number" && result.status !== 0) {
+    if (hasInstalledCommandCache(marketplaceName, pluginVersion)) {
+      console.warn(`codex plugin add exited with code ${result.status}, but the desired plugin cache already exists.`);
+      return;
+    }
+
+    if (result.stdout) {
+      console.warn(result.stdout.trim());
+    }
+    if (result.stderr) {
+      console.warn(result.stderr.trim());
+    }
     console.warn(`codex plugin add exited with code ${result.status}.`);
     console.warn(`Run manually after install: codex plugin add ${selector}`);
+    return;
+  }
+
+  if (result.stdout) {
+    console.log(result.stdout.trim());
   }
 }
 
