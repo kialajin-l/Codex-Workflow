@@ -43,8 +43,9 @@ try {
   Write-Host "Install complete."
   Write-Host "Runtime: $HOME\.codex\codex-workflow\runtime"
   Write-Host "Wrappers: $HOME\.codex\codex-workflow\bin"
-  Write-Host "Use PowerShell wrapper: $HOME\.codex\codex-workflow\bin\cwf.ps1 init"
-  Write-Host "Use CMD wrapper: $HOME\.codex\codex-workflow\bin\cwf.cmd init"
+  Write-Host "Open a new Codex thread or restart / refresh the Codex App, then type: /deepwork"
+  Write-Host "Advanced PowerShell wrapper: $HOME\.codex\codex-workflow\bin\cwf.ps1 init"
+  Write-Host "Advanced CMD wrapper: $HOME\.codex\codex-workflow\bin\cwf.cmd init"
 } finally {
   if (Test-Path $tempRoot) {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force

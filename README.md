@@ -112,6 +112,13 @@ npm run install-plugin
 - `skills/`
 - `workflows/`
 
+同时会注册 Codex App 插件：
+
+- 把插件包复制到 `~/plugins/codex-workflow/`
+- 把 `codex-workflow` 写入本地 marketplace：`~/.agents/plugins/marketplace.json`
+- 执行 `codex plugin add codex-workflow@<local-marketplace>`
+- 通过 `commands/deepwork.md` 安装 `/deepwork` slash command
+
 同时确保存在：
 
 - `~/.codex/codex-workflow/workflows/pdca-default.json`
@@ -125,6 +132,8 @@ npm run install-plugin
 - 本地源码安装
 - 本地构建
 - 本地同步到 Codex 目录
+- Codex App 插件注册
+- `/deepwork` slash command 安装
 
 ### 远程安装
 
@@ -149,6 +158,9 @@ curl -fsSL https://raw.githubusercontent.com/kialajin-l/Codex-Workflow/main/inst
 3. 运行 `npm run build`
 4. 裁掉 dev 依赖
 5. 调用 `install.js` 安装到本地 `~/.codex/`
+6. 注册并安装本地 Codex 插件
+
+安装或更新后，建议新开一个 Codex 线程，或重启 / 刷新 Codex App，让输入框重新加载 slash command。
 
 ### 安装后的 CLI 位置
 
@@ -166,9 +178,19 @@ macOS / Linux:
 
 - `~/.codex/codex-workflow/bin/cwf`
 
-### 安装后怎么执行
+### 主要 App 入口
 
-如果你是通过远程安装脚本安装的，建议直接使用 wrapper：
+安装完成后，在 Codex 对话框输入：
+
+```text
+/deepwork
+```
+
+App 重新加载插件后，输入 `/` 应该能看到 `/deepwork`。
+
+### 高级 CLI 烟测
+
+终端 wrapper 主要用于 runtime 检查、调试和高级用户操作：
 
 Windows PowerShell:
 
@@ -253,6 +275,7 @@ CLI 命令已经单独整理到：
 
 - [`.codex-plugin/plugin.json`](./.codex-plugin/plugin.json)
 - [`.mcp.json`](./.mcp.json)
+- [`commands/deepwork.md`](./commands/deepwork.md)
 
 展示资源：
 
@@ -267,6 +290,7 @@ CLI 命令已经单独整理到：
 codex-workflow/
 ├── .codex-plugin/              # Codex plugin manifest
 ├── .mcp.json                   # MCP server config
+├── commands/                   # Codex App slash commands
 ├── assets/                     # plugin icon, logo, screenshots
 ├── docs/                       # 用户和维护文档
 ├── agents/                     # 内置 agent 资产

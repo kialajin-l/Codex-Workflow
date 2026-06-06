@@ -50,4 +50,5 @@ echo
 echo "Install complete."
 echo "Runtime: ${HOME}/.codex/codex-workflow/runtime"
 echo "Wrappers: ${HOME}/.codex/codex-workflow/bin"
-echo "Use shell wrapper: ${HOME}/.codex/codex-workflow/bin/cwf init"
+echo "Open a new Codex thread or restart / refresh the Codex App, then type: /deepwork"
+echo "Advanced shell wrapper: ${HOME}/.codex/codex-workflow/bin/cwf init"

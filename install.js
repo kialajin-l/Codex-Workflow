@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const home = os.homedir();
 const sourceDir = process.cwd();
@@ -10,6 +11,10 @@ const userConfigDir = path.join(codexHomeDir, "codex-workflow");
 const runtimeDir = path.join(userConfigDir, "runtime");
 const binDir = path.join(userConfigDir, "bin");
 const agentsDir = path.join(codexSkillDir, "agents");
+const localPluginsRoot = path.join(home, "plugins");
+const localPluginDir = path.join(localPluginsRoot, "codex-workflow");
+const marketplaceDir = path.join(home, ".agents", "plugins");
+const marketplacePath = path.join(marketplaceDir, "marketplace.json");
 const builtinWorkflowNames = new Set(["pdca-default.json", "lint-gate.json"]);
 
 function ensureDir(dir) {
@@ -84,6 +89,88 @@ function installRuntimeBundle() {
   copyFile("model-profiles.json", runtimeDir);
 }
 
+function copyPluginAsset(relativePath) {
+  const srcPath = requirePath(relativePath);
+  const destPath = path.join(localPluginDir, relativePath);
+  ensureDir(path.dirname(destPath));
+  fs.copyFileSync(srcPath, destPath);
+}
+
+function installPluginBundle() {
+  ensureDir(localPluginDir);
+  copyDirForce(path.join(sourceDir, ".codex-plugin"), path.join(localPluginDir, ".codex-plugin"));
+  copyDirForce(path.join(sourceDir, "assets"), path.join(localPluginDir, "assets"));
+  copyDirForce(path.join(sourceDir, "commands"), path.join(localPluginDir, "commands"));
+  copyDirForce(path.join(sourceDir, "skills"), path.join(localPluginDir, "skills"));
+  copyPluginAsset(".mcp.json");
+  copyPluginAsset("README.md");
+  copyPluginAsset("README.en.md");
+  copyPluginAsset("SKILL.md");
+  copyPluginAsset("LICENSE");
+}
+
+function readMarketplace() {
+  if (!fs.existsSync(marketplacePath)) {
+    return {
+      name: "personal",
+      interface: {
+        displayName: "Personal",
+      },
+      plugins: [],
+    };
+  }
+
+  return JSON.parse(fs.readFileSync(marketplacePath, "utf8"));
+}
+
+function ensureMarketplaceEntry() {
+  ensureDir(marketplaceDir);
+  const marketplace = readMarketplace();
+  marketplace.plugins = Array.isArray(marketplace.plugins) ? marketplace.plugins : [];
+
+  const entry = {
+    name: "codex-workflow",
+    source: {
+      source: "local",
+      path: "./plugins/codex-workflow",
+    },
+    policy: {
+      installation: "AVAILABLE",
+      authentication: "ON_INSTALL",
+    },
+    category: "Productivity",
+  };
+
+  const existingIndex = marketplace.plugins.findIndex((plugin) => plugin?.name === "codex-workflow");
+  if (existingIndex >= 0) {
+    marketplace.plugins[existingIndex] = entry;
+  } else {
+    marketplace.plugins.push(entry);
+  }
+
+  fs.writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2), "utf8");
+  return marketplace.name;
+}
+
+function installCodexPlugin(marketplaceName) {
+  const selector = `codex-workflow@${marketplaceName}`;
+  const result = spawnSync("codex", ["plugin", "add", selector], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+
+  if (result.error) {
+    console.warn(`Could not run codex plugin add automatically: ${result.error.message}`);
+    console.warn(`Run manually after install: codex plugin add ${selector}`);
+    return;
+  }
+
+  if (typeof result.status === "number" && result.status !== 0) {
+    console.warn(`codex plugin add exited with code ${result.status}.`);
+    console.warn(`Run manually after install: codex plugin add ${selector}`);
+  }
+}
+
 function writeWindowsCmdWrapper() {
   const filePath = path.join(binDir, "cwf.cmd");
   const content = [
@@ -146,6 +233,8 @@ function installWrappers() {
 }
 
 requirePath("SKILL.md");
+requirePath(".codex-plugin");
+requirePath("commands");
 requirePath("agents");
 requirePath("hooks");
 requirePath("skills");
@@ -168,6 +257,9 @@ ensureDir(path.join(userConfigDir, "workflows"));
 syncBuiltinWorkflows(path.join(sourceDir, "workflows"), path.join(userConfigDir, "workflows"));
 installRuntimeBundle();
 installWrappers();
+installPluginBundle();
+const marketplaceName = ensureMarketplaceEntry();
+installCodexPlugin(marketplaceName);
 
 const pdcaDefaultPath = path.join(userConfigDir, "workflows", "pdca-default.json");
 if (!fs.existsSync(pdcaDefaultPath)) {
@@ -194,3 +286,5 @@ if (!fs.existsSync(pdcaDefaultPath)) {
 console.log(`Installed Codex Workflow assets into ${codexHomeDir}`);
 console.log(`Runtime directory: ${runtimeDir}`);
 console.log(`Wrapper scripts: ${binDir}`);
+console.log(`Plugin source directory: ${localPluginDir}`);
+console.log(`Marketplace entry: codex-workflow@${marketplaceName}`);

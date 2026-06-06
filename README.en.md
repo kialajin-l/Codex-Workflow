@@ -112,6 +112,13 @@ npm run install-plugin
 - `skills/`
 - `workflows/`
 
+It also registers the Codex App plugin:
+
+- copies the plugin bundle to `~/plugins/codex-workflow/`
+- adds `codex-workflow` to the local marketplace at `~/.agents/plugins/marketplace.json`
+- runs `codex plugin add codex-workflow@<local-marketplace>`
+- installs the slash command from `commands/deepwork.md`
+
 It also ensures:
 
 - `~/.codex/codex-workflow/workflows/pdca-default.json`
@@ -123,6 +130,8 @@ It also ensures:
 - local source install
 - local build
 - local sync into Codex directories
+- Codex App plugin registration
+- `/deepwork` slash-command installation
 
 ### Remote install
 
@@ -147,6 +156,9 @@ The remote installer will:
 3. run `npm run build`
 4. prune dev dependencies
 5. call `install.js` to sync into local `~/.codex/`
+6. register and install the local Codex plugin
+
+After installing or updating, open a new Codex thread or restart / refresh the Codex App so the composer can reload slash commands.
 
 ### Installed CLI locations
 
@@ -164,9 +176,19 @@ macOS / Linux:
 
 - `~/.codex/codex-workflow/bin/cwf`
 
-### How to run it after installation
+### Primary app entrypoint
 
-If you installed through the remote scripts, use the wrapper directly:
+After installation, use the Codex chat composer:
+
+```text
+/deepwork
+```
+
+Typing `/` should show `/deepwork` after the app has reloaded the installed plugin.
+
+### Advanced CLI smoke test
+
+The terminal wrapper is for runtime inspection, debugging, and advanced users:
 
 Windows PowerShell:
 
@@ -251,6 +273,7 @@ Current standard entrypoints:
 
 - [`.codex-plugin/plugin.json`](./.codex-plugin/plugin.json)
 - [`.mcp.json`](./.mcp.json)
+- [`commands/deepwork.md`](./commands/deepwork.md)
 
 Presentation assets:
 
@@ -265,6 +288,7 @@ Presentation assets:
 codex-workflow/
 ├── .codex-plugin/              # Codex plugin manifest
 ├── .mcp.json                   # MCP server config
+├── commands/                   # Codex App slash commands
 ├── assets/                     # plugin icon, logo, screenshots
 ├── docs/                       # user and maintainer docs
 ├── agents/                     # bundled agent assets
