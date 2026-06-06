@@ -1,6 +1,6 @@
 {
   "name": "codex-workflow",
-  "version": "0.1.0+codex.20260606140931",
+  "version": "0.1.0+codex.20260606193011",
   "description": "Hook-driven workflow orchestration plugin for Codex with CLI workers, resume support, cost tracking, and structured logs.",
   "author": {
     "name": "kialajin-l",
@@ -31,9 +31,9 @@
     "privacyPolicyURL": "https://openai.com/policies/row-privacy-policy/",
     "termsOfServiceURL": "https://openai.com/policies/row-terms-of-use/",
     "defaultPrompt": [
-      "Set up Codex Workflow for my project and explain the first batch run.",
-      "Show me how to route architect tasks to Codex and implementers to CLI workers.",
-      "Help me create a custom workflow preset with hook rules and review gates."
+      "Start DeepWork onboarding. Ask for mode, goal style, and review strictness before editing files.",
+      "Use DeepWork to plan my next task. Do not modify files until I confirm the plan.",
+      "Explain how DeepWork routes Codex, CLI workers, and review gates."
     ],
     "brandColor": "#0F766E",
     "composerIcon": "./assets/plugin-icon.svg",
