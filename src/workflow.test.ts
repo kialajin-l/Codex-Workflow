@@ -7,7 +7,7 @@ import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { verifyTaskCompletion } from "./verify.js";
 import type { RouteDecision, WorkflowConfig, WorkflowTask } from "./types.js";
 import { loadBatch } from "./store.js";
-import { buildRetryPrompt, buildWorkerPrompt, createTask, inferDeepworkRole, resolveTaskPhase, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
+import { buildRetryPrompt, buildWorkerPrompt, createTask, inferDeepworkRole, resolveTaskPhase, runTask, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
 
 const cleanupDirs = new Set<string>();
 
@@ -1299,6 +1299,41 @@ describe("deepwork batch integration without route", () => {
 });
 
 describe("delegated payload uses task.role", () => {
+  it("single codex-mode task delegates instead of invoking the CLI executor", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-single-delegated-"));
+    cleanupDirs.add(rootDir);
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: process.execPath,
+          args: ["-e", "process.stdout.write('this CLI should not run')"],
+          artifactMode: "text",
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(
+      rootDir,
+      "Ship a health endpoint",
+      "mock",
+      config,
+      undefined,
+      { execMode: "codex" },
+    );
+
+    const delegatedTask = await runTask(rootDir, task, config);
+
+    assert.equal(delegatedTask.phase, "delegated_to_codex");
+    assert.equal(delegatedTask.workerResult?.status, "delegated");
+    assert.equal(delegatedTask.workerResult?.source, "delegated");
+    const payload = JSON.parse(delegatedTask.workerResult!.stdout) as Record<string, unknown>;
+    assert.equal(payload.action, "codex_subagent_required");
+    assert.equal(payload.goal, "Ship a health endpoint");
+    assert.equal(payload.taskId, task.id);
+  });
+
   it("delegated planner goal without route carries role=planner, not implementer", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-delegated-role-"));
     cleanupDirs.add(rootDir);

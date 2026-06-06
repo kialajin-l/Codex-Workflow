@@ -526,11 +526,41 @@ export async function runTaskWithFallbacks(
   return task;
 }
 
+async function delegateTaskToCodex(rootDir: string, task: WorkflowTask): Promise<WorkflowTask> {
+  const now = new Date().toISOString();
+  const delegatedTask: WorkflowTask = {
+    ...task,
+    phase: "delegated_to_codex",
+    updatedAt: now,
+    workerResult: {
+      status: "delegated",
+      source: "delegated",
+      stdout: JSON.stringify({
+        action: "codex_subagent_required",
+        goal: task.goal,
+        role: task.role ?? task.route?.role ?? "implementer",
+        complexity: task.complexity ?? task.route?.complexity ?? "medium",
+        taskId: task.id,
+      }),
+      stderr: "",
+      exitCode: 0,
+      startedAt: now,
+      finishedAt: now,
+      attempts: 1,
+    },
+  };
+  await saveTask(rootDir, delegatedTask);
+  return delegatedTask;
+}
+
 export async function runTask(
   rootDir: string,
   task: WorkflowTask,
   config: WorkflowConfig,
 ): Promise<WorkflowTask> {
+  if (task.execMode === "codex") {
+    return delegateTaskToCodex(rootDir, task);
+  }
   return runTaskWithFallbacks(rootDir, task, config);
 }
 
@@ -629,29 +659,7 @@ function createDispatchedTaskRunner(
 ): (task: WorkflowTask) => Promise<WorkflowTask> {
   return async (task: WorkflowTask): Promise<WorkflowTask> => {
     if (task.execMode === "codex") {
-      const now = new Date().toISOString();
-      const delegatedTask: WorkflowTask = {
-        ...task,
-        phase: "delegated_to_codex",
-        updatedAt: now,
-        workerResult: {
-          status: "delegated",
-          source: "delegated",
-          stdout: JSON.stringify({
-            action: "codex_subagent_required",
-            goal: task.goal,
-            role: task.role ?? task.route?.role ?? "implementer",
-            complexity: task.complexity ?? task.route?.complexity ?? "medium",
-            taskId: task.id,
-          }),
-          stderr: "",
-          exitCode: 0,
-          startedAt: now,
-          finishedAt: now,
-          attempts: 1,
-        },
-      };
-      await saveTask(rootDir, delegatedTask);
+      const delegatedTask = await delegateTaskToCodex(rootDir, task);
       await logTaskComplete(rootDir, batchId, delegatedTask.id, delegatedTask.phase).catch(() => {});
       return delegatedTask;
     }
