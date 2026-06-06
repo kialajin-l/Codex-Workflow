@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { buildDeepworkExecutionPlan, createDeepworkResponse, deepworkPreferencesPath, loadDeepworkPreferences, saveDeepworkPreferences } from "./deepwork.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("deepwork preferences", () => {
   const originalHome = process.env.CODEX_WORKFLOW_HOME;
@@ -131,5 +136,26 @@ describe("deepwork preferences", () => {
     assert.equal(plan.execMode, "codex");
     assert.equal(plan.autoRoute, false);
     assert.deepEqual(plan.goals, ["Task A", "Task B"]);
+  });
+
+  it("parses valueless flags without swallowing following options", async () => {
+    const cliPath = fileURLToPath(new URL("./index.js", import.meta.url));
+    const homeDir = path.join(os.tmpdir(), "codex-workflow-tests", `deepwork-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const { stdout } = await execFileAsync(process.execPath, [
+      cliPath,
+      "deepwork",
+      "--temporary",
+      "--execution-mode",
+      "codex-first",
+    ], {
+      env: {
+        ...process.env,
+        CODEX_WORKFLOW_HOME: homeDir,
+      },
+    });
+
+    const response = JSON.parse(stdout);
+    assert.equal(response.preferences.executionMode, "codex-first");
+    assert.equal(response.preferences.temporaryOverride, true);
   });
 });

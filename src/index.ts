@@ -18,8 +18,13 @@ function parseArgs(argv: string[]): Record<string, string> {
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token.startsWith("--")) {
-      args[token.slice(2)] = argv[i + 1] ?? "";
-      i += 1;
+      const next = argv[i + 1];
+      if (!next || next.startsWith("--")) {
+        args[token.slice(2)] = "true";
+      } else {
+        args[token.slice(2)] = next;
+        i += 1;
+      }
     }
   }
   return args;
