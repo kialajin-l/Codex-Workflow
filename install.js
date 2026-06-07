@@ -7,6 +7,7 @@ const home = os.homedir();
 const sourceDir = process.cwd();
 const codexHomeDir = path.join(home, ".codex");
 const codexSkillDir = path.join(codexHomeDir, "skills", "codex-workflow");
+const deepworkSkillDir = path.join(codexHomeDir, "skills", "deepwork");
 const userConfigDir = path.join(codexHomeDir, "codex-workflow");
 const runtimeDir = path.join(userConfigDir, "runtime");
 const binDir = path.join(userConfigDir, "bin");
@@ -112,6 +113,29 @@ function hasInstalledCommandCache(marketplaceName, pluginVersion) {
   return fs.existsSync(commandPath);
 }
 
+function hasEnabledPluginConfig(selector) {
+  const configPath = path.join(codexHomeDir, "config.toml");
+  if (!fs.existsSync(configPath)) {
+    return false;
+  }
+
+  const sectionHeader = `[plugins."${selector}"]`;
+  let inSection = false;
+  for (const line of fs.readFileSync(configPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      inSection = trimmed === sectionHeader;
+      continue;
+    }
+
+    if (inSection && /^enabled\s*=\s*true\b/.test(trimmed)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function copyPluginAsset(relativePath) {
   const srcPath = requirePath(relativePath);
   const destPath = path.join(localPluginDir, relativePath);
@@ -177,12 +201,12 @@ function ensureMarketplaceEntry() {
 
 function installCodexPlugin(marketplaceName) {
   const pluginVersion = readPluginVersion();
-  if (hasInstalledCommandCache(marketplaceName, pluginVersion)) {
-    console.log(`Codex plugin cache already contains /deepwork for version ${pluginVersion}; skipping reinstall.`);
+  const selector = `codex-workflow@${marketplaceName}`;
+  if (hasInstalledCommandCache(marketplaceName, pluginVersion) && hasEnabledPluginConfig(selector)) {
+    console.log(`Codex plugin cache and config already contain /deepwork for version ${pluginVersion}; skipping reinstall.`);
     return;
   }
 
-  const selector = `codex-workflow@${marketplaceName}`;
   const result = spawnSync("codex", ["plugin", "add", selector], {
     encoding: "utf8",
     shell: process.platform === "win32",
@@ -195,7 +219,7 @@ function installCodexPlugin(marketplaceName) {
   }
 
   if (typeof result.status === "number" && result.status !== 0) {
-    if (hasInstalledCommandCache(marketplaceName, pluginVersion)) {
+    if (hasInstalledCommandCache(marketplaceName, pluginVersion) && hasEnabledPluginConfig(selector)) {
       console.warn(`codex plugin add exited with code ${result.status}, but the desired plugin cache already exists.`);
       return;
     }
@@ -278,6 +302,7 @@ function installWrappers() {
 }
 
 requirePath("SKILL.md");
+requirePath(path.join("skills", "deepwork", "SKILL.md"));
 requirePath(".codex-plugin");
 requirePath("commands");
 requirePath("agents");
@@ -292,6 +317,8 @@ requirePath(path.join("node_modules", "zod"));
 
 ensureDir(codexSkillDir);
 fs.copyFileSync(path.join(sourceDir, "SKILL.md"), path.join(codexSkillDir, "SKILL.md"));
+ensureDir(deepworkSkillDir);
+fs.copyFileSync(path.join(sourceDir, "skills", "deepwork", "SKILL.md"), path.join(deepworkSkillDir, "SKILL.md"));
 ensureDir(agentsDir);
 copyDirForce(path.join(sourceDir, "agents"), agentsDir);
 
@@ -329,6 +356,7 @@ if (!fs.existsSync(pdcaDefaultPath)) {
 }
 
 console.log(`Installed Codex Workflow assets into ${codexHomeDir}`);
+console.log(`DeepWork skill alias: ${deepworkSkillDir}`);
 console.log(`Runtime directory: ${runtimeDir}`);
 console.log(`Wrapper scripts: ${binDir}`);
 console.log(`Plugin source directory: ${localPluginDir}`);
