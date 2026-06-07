@@ -149,8 +149,8 @@ export function synthesizeStructuredFallback(task: Pick<WorkflowTask, "goal" | "
     return {
       summary: `Created a minimal execution plan for ${baseGoal}.`,
       changes: "Produced assumptions and ordered implementation steps locally after worker schema failures.",
-      risks: "This fallback plan is generic and should be refined against real repository context before execution.",
-      status: "ok",
+      risks: "No real executor artifact was produced; retry with another executor before treating this as complete.",
+      status: "blocked",
       goal: baseGoal,
       assumptions: [
         "A service or app already exists for this project goal.",
@@ -168,8 +168,8 @@ export function synthesizeStructuredFallback(task: Pick<WorkflowTask, "goal" | "
     return {
       summary: `Prepared a minimal implementer handoff for ${baseGoal}.`,
       changes: "Produced a concrete deliverable and next step locally after worker schema failures.",
-      risks: "This fallback does not modify files and may need repository-specific adjustment before coding.",
-      status: "ok",
+      risks: "No real executor artifact was produced; retry with another executor before treating this as complete.",
+      status: "blocked",
       deliverable: `A minimal implementation slice for ${baseGoal}.`,
       assumptions: [
         "Existing project structure can accept a focused change for this goal.",

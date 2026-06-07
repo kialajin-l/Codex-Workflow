@@ -46,6 +46,18 @@
         "output": 0.0008
       },
       "fallbackExecutors": ["opencode-pro"]
+    },
+    "xiaomi/mimo-v2.5-free": {
+      "executor": "mimo-free",
+      "tags": ["free", "product", "chinese", "ux"],
+      "maxComplexity": "medium",
+      "preferredRoles": ["planner", "copywriter"],
+      "costRank": 1,
+      "costPer1K": {
+        "input": 0,
+        "output": 0
+      },
+      "fallbackExecutors": ["mimo", "opencode-pro"]
     }
   }
 }

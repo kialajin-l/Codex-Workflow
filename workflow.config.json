@@ -93,6 +93,21 @@
       "artifactMode": "text",
       "timeoutMs": 180000
     },
+    "mimo-free": {
+      "mode": "spawn",
+      "command": "opencode",
+      "args": [
+        "run",
+        "--pure",
+        "--format",
+        "json",
+        "--model",
+        "opencode/mimo-v2.5-free"
+      ],
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
+      "artifactMode": "text",
+      "timeoutMs": 180000
+    },
     "mimo-flash": {
       "mode": "spawn",
       "command": "opencode",

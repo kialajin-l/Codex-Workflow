@@ -352,6 +352,10 @@ export function reviewWorkerResultForMode(
   const normalizedOutput = output.toLowerCase();
   result.failureCategory = categorizeWorkerFailure(result, expected, payload, artifact, mode);
 
+  if (result.source === "fallback-synthesized") {
+    issues.push("Fallback-synthesized result has no executor evidence.");
+  }
+
   if (result.status !== "ok") {
     issues.push("Worker exited with a non-zero status.");
   }

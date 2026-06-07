@@ -62,6 +62,53 @@ describe("deepwork planner routing", () => {
     assert.deepEqual(routes[0].fallbackExecutors, ["mimo"]);
   });
 
+  it("prefers mimo-free as the structured planner fallback when available", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-router-"));
+    const config: WorkflowConfig = {
+      defaultExecutor: "opencode",
+      executors: {
+        opencode: { command: "opencode", args: [] },
+        "opencode-pro": { command: "opencode", args: [] },
+        mimo: { command: "opencode", args: [] },
+        "mimo-free": { command: "opencode", args: [] },
+      },
+    };
+
+    const routes = await routeGoals(rootDir, [
+      "Ship a health endpoint - produce a short implementation plan",
+    ], config, {
+      modelProfiles: {
+        "deepseek/deepseek-v4-pro": {
+          executor: "opencode-pro",
+          tags: ["reasoning"],
+          maxComplexity: "high",
+          preferredRoles: ["architect"],
+          costRank: 2,
+        },
+        "xiaomi/mimo-v2.5": {
+          executor: "mimo",
+          tags: ["product"],
+          maxComplexity: "medium",
+          preferredRoles: ["planner"],
+          costRank: 1,
+          fallbackExecutors: ["opencode-pro"],
+        },
+        "xiaomi/mimo-v2.5-free": {
+          executor: "mimo-free",
+          tags: ["free", "product"],
+          maxComplexity: "medium",
+          preferredRoles: ["planner"],
+          costRank: 1,
+          fallbackExecutors: ["mimo", "opencode-pro"],
+        },
+      },
+    });
+
+    assert.equal(routes[0].executor, "opencode-pro");
+    assert.equal(routes[0].role, "planner");
+    assert.deepEqual(routes[0].fallbackExecutors, ["mimo-free"]);
+  });
+
   it("keeps low-risk implementer goals on opencode", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-router-"));
     const config: WorkflowConfig = {

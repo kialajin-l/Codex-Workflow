@@ -104,9 +104,13 @@ function routePreferenceScore(
     }
   }
 
-  if (profile.executor === "mimo") {
+  if (profile.executor === "mimo" || profile.executor === "mimo-free") {
     if (role === "planner" || role === "copywriter") {
       score += 25;
+    }
+
+    if (profile.executor === "mimo-free") {
+      score += 5;
     }
 
     if (complexity === "high") {
@@ -126,7 +130,7 @@ function computeFallbackExecutors(
   availableExecutors: Set<string>,
 ): string[] {
   const preferredFallbackOrder = role === "implementer" && complexity === "low"
-    ? ["opencode-serve", "mimo", "opencode-pro"]
+    ? ["opencode-serve", "mimo-free", "mimo", "opencode-pro"]
     : [];
 
   const explicit = (selectedProfile.fallbackExecutors ?? [])
@@ -216,7 +220,11 @@ export async function routeGoals(
         goal,
         profile: "deepwork/planner-structured",
         executor: "opencode-pro",
-        fallbackExecutors: availableExecutors.has("mimo") ? ["mimo"] : [],
+        fallbackExecutors: availableExecutors.has("mimo-free")
+          ? ["mimo-free"]
+          : availableExecutors.has("mimo")
+            ? ["mimo"]
+            : [],
         role: "planner",
         complexity,
         reason: "role=planner, structured deepwork planner prefers opencode-pro for schema reliability",

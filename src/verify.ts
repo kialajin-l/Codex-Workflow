@@ -21,7 +21,7 @@ export function verifyTaskCompletion(task: WorkflowTask): VerificationVerdict {
 
   // (2) Fallback-synthesized results carry no execution evidence.
   if (task.workerResult?.source === "fallback-synthesized" && task.structuredMode) {
-    return { verdict: "unverified", reason: "Result was synthesized locally; no executor evidence." };
+    return { verdict: "blocked", reason: "Result was synthesized locally; no executor evidence." };
   }
 
   // (3) Implementer tasks: require observable execution, not pure analysis.

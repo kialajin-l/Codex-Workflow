@@ -205,7 +205,7 @@ describe("structured fallback", () => {
     });
 
     assert.ok(payload);
-    assert.equal(payload.status, "ok");
+    assert.equal(payload.status, "blocked");
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(record.goal, "Ship a health endpoint");
     assert.ok(Array.isArray(record.steps));
@@ -219,7 +219,7 @@ describe("structured fallback", () => {
     });
 
     assert.ok(payload);
-    assert.equal(payload.status, "ok");
+    assert.equal(payload.status, "blocked");
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(typeof record.deliverable, "string");
     assert.equal(typeof record.nextStep, "string");
@@ -389,6 +389,48 @@ describe("worker result provenance", () => {
 });
 
 describe("batch persistence", () => {
+  it("blocks a batch when all structured tasks end in synthesized fallback", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fallback-batch-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "failing-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stderr.write('Unexpected server error');",
+      "process.exit(1);",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      [
+        "Ship a health endpoint - produce a short implementation plan",
+        "Ship a health endpoint - implement the highest-value next step and return a concrete deliverable",
+      ],
+      "mock",
+      config,
+      "parallel",
+    );
+
+    assert.equal(batch.phase, "blocked");
+    assert.equal(batch.summary?.completed, 0);
+    assert.equal(batch.summary?.blocked, 2);
+    assert.equal(batch.summary?.resultSources.fallbackSynthesized, 2);
+    assert.equal(batch.tasks.every((task) => task.phase === "blocked"), true);
+    assert.equal(batch.tasks.every((task) => task.workerResult?.source === "fallback-synthesized"), true);
+    assert.equal(batch.tasks.every((task) => task.workerResult?.parsed?.status === "blocked"), true);
+    assert.equal(batch.summary?.nextSteps.some((step) => /deployment/i.test(step)), false);
+  });
+
   it("persists batch state before parallel tasks finish", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-batch-"));
     cleanupDirs.add(rootDir);
@@ -1052,15 +1094,15 @@ describe("regression: verify analysis-only implementer output", () => {
 });
 
 describe("regression: blocked status with fallback payload", () => {
-  it("synthesizeStructuredFallback always produces ok status", () => {
+  it("synthesizeStructuredFallback marks the task outcome as blocked", () => {
     const fallback = synthesizeStructuredFallback({
       goal: "Ship a health endpoint - produce a short implementation plan",
       role: "planner",
       structuredMode: "deepwork-planner",
     });
     assert.ok(fallback);
-    assert.equal(fallback.status, "ok",
-      "Fallback payload should always have status=ok — blocked only comes from real executors");
+    assert.equal(fallback.status, "blocked",
+      "Fallback payload should be blocked because it has no real executor artifact");
   });
 });
 
@@ -1116,6 +1158,73 @@ describe("regression: resolveTaskPhase terminal state contract", () => {
       review: { decision: "retry" as const, summary: "needs retry", issues: ["invalid"], reviewedAt: new Date().toISOString() },
     } as WorkflowTask);
     assert.equal(phase, "blocked", "resolveTaskPhase must return blocked when review does not accept");
+  });
+
+  it("resolves fallback-synthesized results to blocked even when review accepts", () => {
+    const phase = resolveTaskPhase({
+      id: "test",
+      goal: "Test - produce a short implementation plan",
+      executor: "mock",
+      phase: "review",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-planner",
+      role: "planner" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "fallback-synthesized",
+        stdout: JSON.stringify({
+          summary: "fallback",
+          changes: "local handoff",
+          risks: "no executor evidence",
+          status: "ok",
+          goal: "Test",
+          assumptions: ["none"],
+          steps: ["retry with another executor"],
+        }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        parsed: {
+          summary: "fallback",
+          changes: "local handoff",
+          risks: "no executor evidence",
+          status: "ok",
+          goal: "Test",
+          assumptions: ["none"],
+          steps: ["retry with another executor"],
+        },
+      },
+      review: { decision: "accept" as const, summary: "accepted", issues: [], reviewedAt: new Date().toISOString() },
+    } as WorkflowTask);
+
+    assert.equal(phase, "blocked", "fallback-synthesized is diagnostic only and must not count as completed");
+  });
+
+  it("review rejects fallback-synthesized structured payloads", () => {
+    const fallback = synthesizeStructuredFallback({
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      role: "planner",
+      structuredMode: "deepwork-planner",
+    });
+    assert.ok(fallback);
+
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      source: "fallback-synthesized",
+      stdout: JSON.stringify(fallback),
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+      parsed: fallback,
+    }, "schema", "deepwork-planner");
+
+    assert.equal(review.decision, "retry");
+    assert.match(review.issues.join("\n"), /no executor evidence|fallback/i);
   });
 
   it("resolves to blocked for non-structured delegated task with blocked JSON payload (Fix non-structured)", () => {
