@@ -39,7 +39,7 @@ Codex Workflow 提供的就是这一层，不依赖额外的独立编排服务�
 | Hook 管线 | 支持 `task:before_dispatch`、`task:after_result`、`review:after` |
 | 断点续跑 | 通过 `run-batch --resume <batch-id>` 只重跑未完成任务 |
 | Review 闭环 | worker 输出先 review，再 accept / reject / retry / block |
-| 结构化日志 | 把 NDJSON 日志写入 `.workflow-state/logs/` |
+| 结构化日志 | 把 NDJSON 日志写入目标项目的 `.workflow-state/logs/` |
 | 成本估算 | 基于路由 profile 汇总估算 token 和成本 |
 | 混合执行模式 | 在外部 CLI worker 与 Codex 处理路径之间切换 |
 

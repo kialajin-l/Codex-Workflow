@@ -39,7 +39,7 @@ Codex Workflow provides that layer without requiring a separate orchestration se
 | Hook pipeline | Apply `task:before_dispatch`, `task:after_result`, and `review:after` |
 | Resumable runs | Retry only unfinished tasks with `run-batch --resume <batch-id>` |
 | Review loop | Accept, reject, retry, or block worker output before finalizing |
-| Structured logs | Write NDJSON logs into `.workflow-state/logs/` |
+| Structured logs | Write NDJSON logs into the target project's `.workflow-state/logs/` |
 | Cost estimation | Summarize estimated token and cost usage from routed task profiles |
 | Mixed execution modes | Switch between external CLI workers and Codex-managed handling |
 
