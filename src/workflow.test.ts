@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { verifyTaskCompletion } from "./verify.js";
-import type { RouteDecision, WorkflowConfig, WorkflowTask } from "./types.js";
+import type { DeepworkPlannerResult, RouteDecision, WorkflowConfig, WorkflowTask } from "./types.js";
 import { loadBatch } from "./store.js";
 import { buildRetryPrompt, buildWorkerPrompt, createTask, inferDeepworkRole, resolveTaskPhase, runTask, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
 
@@ -389,6 +389,50 @@ describe("worker result provenance", () => {
     }
     assert.equal(parsed?.goal, "Ship a health endpoint");
     assert.deepEqual(parsed?.steps, ["Add route", "Add test"]);
+  });
+
+  it("blocks executor-salvaged structured output in strict review mode", async () => {
+    const now = new Date().toISOString();
+    const task: WorkflowTask = {
+      id: "strict-salvaged",
+      goal: "Ship a health endpoint - produce a short implementation plan",
+      executor: "mock",
+      phase: "review",
+      createdAt: now,
+      updatedAt: now,
+      workerPrompt: "test",
+      expectedOutput: "schema",
+      role: "planner",
+      structuredMode: "deepwork-planner",
+      reviewMode: "strict-review",
+      workerResult: {
+        status: "ok",
+        source: "executor-salvaged",
+        stdout: "Summary: Created a plan\nChanges: Outlined steps\nRisks: none\nGoal: Ship a health endpoint\nAssumptions:\n- Express app exists\nSteps:\n- Add route",
+        stderr: "",
+        exitCode: 0,
+        startedAt: now,
+        finishedAt: now,
+        attempts: 1,
+        parsed: {
+          summary: "Created a plan",
+          changes: "Outlined steps",
+          risks: "none",
+          status: "ok",
+          goal: "Ship a health endpoint",
+          assumptions: ["Express app exists"],
+          steps: ["Add route"],
+        } as DeepworkPlannerResult,
+      },
+      review: {
+        decision: "accept",
+        summary: "Accepted salvage.",
+        issues: [],
+        reviewedAt: now,
+      },
+    };
+
+    assert.equal(resolveTaskPhase(task), "blocked");
   });
 
   it("switches implementer artifact retries to a fallback executor before retrying the same executor", async () => {

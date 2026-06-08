@@ -193,4 +193,34 @@ describe("batch summary", () => {
     assert.equal(summary.delegated, 1);
     assert.equal(summary.consensus, "partial");
   });
+
+  it("does not report high consensus or deployment next step for salvaged completed results", () => {
+    const summary = summarizeBatch([
+      createTask({
+        id: "salvaged-completed",
+        phase: "completed",
+        workerResult: {
+          status: "ok",
+          source: "executor-salvaged",
+          stdout: "Summary: Created a plan\n{\"summary\":\"Created a plan\",\"changes\":\"Created phase5 plan\",\"risks\":\"none\",\"status\":\"ok\"}",
+          stderr: "",
+          exitCode: 0,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          parsed: {
+            summary: "Created a plan",
+            changes: "Created phase5 plan",
+            risks: "none",
+            status: "ok",
+          },
+        },
+      }),
+    ]);
+
+    assert.equal(summary.completed, 1);
+    assert.equal(summary.resultSources.executorSalvaged, 1);
+    assert.equal(summary.consensus, "partial");
+    const deploymentStep = summary.nextSteps.find(s => /deployment|integration/i.test(s));
+    assert.equal(deploymentStep, undefined, "Should not suggest integration or deployment for salvaged output");
+  });
 });

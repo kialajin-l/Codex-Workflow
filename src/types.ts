@@ -90,6 +90,7 @@ export interface WorkflowTask {
   route?: RouteDecision;
   role?: TaskRole;
   complexity?: TaskComplexity;
+  reviewMode?: DeepworkReviewMode;
   workerResult?: WorkerResult;
   review?: ReviewResult;
   structuredMode?: "deepwork-planner" | "deepwork-implementer";

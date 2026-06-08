@@ -352,6 +352,7 @@ async function deepworkEntry(rootDir: string, args: Record<string, string>): Pro
   if (plan.mode === "single") {
     const task = await createTask(rootDir, plan.goals[0], plan.executor, config, undefined, {
       execMode: plan.execMode,
+      reviewMode: selection.reviewMode,
     });
     const completed = await runTask(rootDir, task, config);
     console.log(JSON.stringify({
@@ -372,6 +373,7 @@ async function deepworkEntry(rootDir: string, args: Record<string, string>): Pro
     : "parallel";
   const batch = await runTaskBatch(rootDir, plan.goals, plan.executor, config, batchMode, routes, {
     execMode: plan.execMode,
+    reviewMode: selection.reviewMode,
   });
   console.log(JSON.stringify({
     entry: "/deepwork",

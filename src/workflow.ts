@@ -12,7 +12,7 @@ import {
   resolveInjectSkill,
 } from "./hooks.js";
 import { logBatchEnd, logBatchStart, logTaskComplete } from "./logger.js";
-import type { RouteDecision, WorkflowBatchResult, WorkflowConfig, WorkflowTask } from "./types.js";
+import type { DeepworkReviewMode, RouteDecision, WorkflowBatchResult, WorkflowConfig, WorkflowTask } from "./types.js";
 import { runExecutor } from "./executor.js";
 import { expectedOutputMode, extractJsonObject, parseStructuredWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { saveBatch, saveTask } from "./store.js";
@@ -29,6 +29,7 @@ type LoadedWorkflowHooks = {
 
 type TaskExecutionOverrides = {
   execMode?: "cli" | "codex";
+  reviewMode?: DeepworkReviewMode;
 };
 
 type RecoveryAction =
@@ -541,6 +542,7 @@ export async function createTask(
     expectedOutput,
     route,
     execMode: overrides?.execMode,
+    reviewMode: overrides?.reviewMode,
     role: inferredRole,
     complexity: route?.complexity,
     structuredMode: isDeepworkStructuredGoal(goal) ? deepworkStructuredModeForRole(inferredRole) : undefined,
@@ -725,6 +727,14 @@ function summarizeBatchPhase(tasks: WorkflowTask[]): "completed" | "blocked" | "
 export function resolveTaskPhase(task: WorkflowTask): WorkflowTask["phase"] {
   if (isHostApplyPendingCandidate(task)) {
     return "host_apply_pending";
+  }
+
+  if (
+    task.reviewMode === "strict-review" &&
+    task.structuredMode &&
+    task.workerResult?.source === "executor-salvaged"
+  ) {
+    return "blocked";
   }
 
   // (1) Hard constraint: if the verifier or worker self-reported blocked, phase MUST be blocked

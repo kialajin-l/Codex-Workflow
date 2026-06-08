@@ -44,13 +44,21 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
   // consensus can never be "high".
   const completedWithParsed = tasks.filter((task) => task.phase === "completed" && task.workerResult?.parsed);
   const completedWithoutParsed = tasks.some((task) => task.phase === "completed" && !task.workerResult?.parsed);
+  const completedWithSalvagedSource = tasks.some(
+    (task) => task.phase === "completed" && task.workerResult?.source === "executor-salvaged",
+  );
   const nonCompletedWithBlocked = tasks.some(
     (task) => task.phase !== "completed" && task.workerResult?.parsed?.status === "blocked",
   );
 
   if (completedWithParsed.length === 0) {
     summary.consensus = "none";
-  } else if (summary.completed !== summary.totalTasks || nonCompletedWithBlocked || completedWithoutParsed) {
+  } else if (
+    summary.completed !== summary.totalTasks ||
+    nonCompletedWithBlocked ||
+    completedWithoutParsed ||
+    completedWithSalvagedSource
+  ) {
     // Any unresolved blocked payload or unreliable completed task → not high
     summary.consensus = "partial";
   } else {
