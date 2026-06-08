@@ -5,6 +5,7 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     totalTasks: tasks.length,
     completed: tasks.filter((task) => task.phase === "completed").length,
     blocked: tasks.filter((task) => task.phase === "blocked").length,
+    hostApplyPending: tasks.filter((task) => task.phase === "host_apply_pending").length,
     delegated: tasks.filter((task) => task.phase === "delegated_to_codex").length,
     resultSources: {
       executor: 0,
@@ -67,12 +68,16 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
   if (summary.blocked > 0) {
     summary.nextSteps.push(`${summary.blocked} task(s) blocked - review and retry`);
   }
+  if (summary.hostApplyPending > 0) {
+    summary.nextSteps.push(`${summary.hostApplyPending} task(s) waiting for host agent to apply artifacts`);
+  }
   if (summary.delegated > 0) {
     summary.nextSteps.push(`${summary.delegated} task(s) delegated to Codex - complete them first`);
   }
   // Only suggest deployment when every task is cleanly completed with high consensus
   if (
     summary.blocked === 0 &&
+    summary.hostApplyPending === 0 &&
     summary.delegated === 0 &&
     summary.consensus === "high" &&
     summary.completed === summary.totalTasks

@@ -1,0 +1,64 @@
+{
+  "name": "fullstack-router",
+  "hooks": {
+    "task.before_dispatch.json": {
+      "event": "task:before_dispatch",
+      "default_exec_mode": "cli",
+      "rules": [
+        {
+          "when": { "route.role": "architect" },
+          "then": { "exec_mode": "codex", "executor": "opencode" }
+        },
+        {
+          "when": { "route.role": "planner" },
+          "then": { "exec_mode": "codex", "executor": "opencode" }
+        },
+        {
+          "when": { "route.role": "implementer", "route.complexity": "high" },
+          "then": { "exec_mode": "cli", "executor": "opencode-serve" }
+        },
+        {
+          "when": { "route.role": "implementer", "route.complexity": "low" },
+          "then": { "exec_mode": "codex", "executor": "opencode" }
+        },
+        {
+          "when": { "route.role": "debugger" },
+          "then": { "exec_mode": "cli", "executor": "opencode-serve", "enable_mcp": ["github", "filesystem"] }
+        },
+        {
+          "when": { "route.role": "reviewer" },
+          "then": { "exec_mode": "codex", "executor": "opencode" }
+        },
+        {
+          "when": { "route.role": "copywriter" },
+          "then": { "exec_mode": "codex", "executor": "opencode" }
+        }
+      ]
+    },
+    "task.after_result.json": {
+      "event": "task:after_result",
+      "rules": [
+        {
+          "when": { "route.role": "implementer" },
+          "then": { "action": "lint" }
+        }
+      ]
+    },
+    "review.after.json": {
+      "event": "review:after",
+      "rules": [
+        {
+          "when": { "route.role": "architect" },
+          "then": { "action": "notify", "message": "Architecture review complete - check for cross-module impact" }
+        },
+        {
+          "when": { "route.role": "debugger", "workerResult.status": "failed" },
+          "then": { "action": "notify", "message": "Debug task failed - escalation may be needed" }
+        }
+      ]
+    }
+  },
+  "skills": {
+    "fullstack-context.md": "# Fullstack Context\n\nWhen working on full-stack changes:\n1. Trace the change through the entire stack before starting.\n2. Consider frontend (UI/components), backend (API/routes), and data layer (schema/migrations).\n3. Flag any change that affects more than one layer.\n4. If the task touches multiple layers, split it into per-layer subtasks.\n"
+  }
+}

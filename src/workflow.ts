@@ -62,7 +62,23 @@ function deepworkSchemaForRole(role?: WorkflowTask["role"]): string | null {
   return null;
 }
 
-function buildDeepworkSchemaInstructions(goal: string, role?: WorkflowTask["role"], retry = false): string[] {
+function buildWorkspaceAccessInstructions(allowWorkspaceAccess: boolean): string[] {
+  if (allowWorkspaceAccess) {
+    return [
+      "You may inspect and edit files in the current workspace when needed to complete the task.",
+      "Only claim files were created, edited, or verified when that actually happened.",
+      "If you run verification, report the exact command and result.",
+    ];
+  }
+
+  return [
+    "You do not have repository or filesystem access in this task.",
+    "Do not claim to have inspected package.json, source files, configs, or local code.",
+    "Do not invent repository contents or quote files you were not given.",
+  ];
+}
+
+function buildDeepworkSchemaInstructions(goal: string, role?: WorkflowTask["role"], retry = false, allowWorkspaceAccess = false): string[] {
   const schema = deepworkSchemaForRole(role);
   if (!schema) {
     return [];
@@ -78,9 +94,7 @@ function buildDeepworkSchemaInstructions(goal: string, role?: WorkflowTask["role
     "If you are unsure, make the smallest reasonable assumption and still fill every field.",
     "Arrays must contain at least one concrete string item.",
     "Use short, concrete strings. Do not leave fields empty.",
-    "You do not have repository or filesystem access in this task.",
-    "Do not claim to have inspected package.json, source files, configs, or local code.",
-    "Do not invent repository contents or quote files you were not given.",
+    ...buildWorkspaceAccessInstructions(allowWorkspaceAccess),
     `Schema: ${schema}`,
     `Task: ${goal}`,
   ];
@@ -117,6 +131,10 @@ function deepworkStructuredModeForRole(role?: WorkflowTask["role"]): WorkflowTas
   return undefined;
 }
 
+function executorAllowsWorkspaceAccess(executor?: WorkflowConfig["executors"][string]): boolean {
+  return executor?.mode === "serve";
+}
+
 function stripDeepworkSuffix(goal: string): string {
   return goal
     .replace(/ - produce a short implementation plan$/i, "")
@@ -140,6 +158,29 @@ function isPureJsonObject(stdout: string): boolean {
   } catch {
     return false;
   }
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isHostApplyPendingCandidate(task: WorkflowTask): boolean {
+  if (task.structuredMode !== "deepwork-implementer") {
+    return false;
+  }
+
+  if (task.review?.decision !== "accept") {
+    return false;
+  }
+
+  if (task.workerResult?.source === "fallback-synthesized") {
+    return false;
+  }
+
+  const parsed = task.workerResult?.parsed as Record<string, unknown> | undefined;
+  return parsed?.status === "blocked"
+    && hasNonEmptyString(parsed.deliverable)
+    && hasNonEmptyString(parsed.nextStep);
 }
 
 export function synthesizeStructuredFallback(task: Pick<WorkflowTask, "goal" | "role" | "structuredMode">): DeepworkPlannerResult | DeepworkImplementerResult | null {
@@ -182,7 +223,7 @@ export function synthesizeStructuredFallback(task: Pick<WorkflowTask, "goal" | "
   return null;
 }
 
-function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): string[] {
+function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"], allowWorkspaceAccess = false): string[] {
   const shared = [
     "Provide one concrete artifact in plain text.",
     "Do not ask follow-up questions.",
@@ -190,13 +231,14 @@ function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): s
     "Do not say you need more context.",
     "Do not ask for clarification or ask the user to specify missing details.",
     "Make reasonable assumptions and proceed.",
-    "You do not have repository or filesystem access in this task.",
-    "Do not claim to have inspected package.json, source files, configs, or local code.",
-    "Do not invent repository contents or quote files you were not given.",
-    "Do not claim to have created, edited, saved, or updated files.",
+    ...buildWorkspaceAccessInstructions(allowWorkspaceAccess),
     "No markdown fences.",
     "No explanation about your process.",
   ];
+
+  if (!allowWorkspaceAccess) {
+    shared.splice(shared.length - 2, 0, "Do not claim to have created, edited, saved, or updated files.");
+  }
 
   if (role === "planner" || /implementation plan/i.test(goal)) {
     return [
@@ -231,13 +273,14 @@ function buildArtifactInstructions(goal: string, role?: WorkflowTask["role"]): s
 function classifyRecoveryAction(
   task: WorkflowTask,
   executorName: string,
+  executorTimeoutMs?: number,
 ): RecoveryAction {
   const failure = task.workerResult?.failureCategory;
 
   if (failure === "timeout") {
     return {
       kind: "retry-same-executor",
-      timeoutMs: Math.max(60000, 2 * 30000),
+      timeoutMs: Math.max(60000, 2 * (executorTimeoutMs ?? 30000)),
     };
   }
 
@@ -249,7 +292,7 @@ function classifyRecoveryAction(
       kind: "retry-same-executor",
       expectedOutput: "artifact",
       prompt: [
-        ...buildArtifactInstructions(task.goal, task.role),
+        ...buildArtifactInstructions(task.goal, task.role, task.workerPrompt.includes("You may inspect and edit files in the current workspace")),
         "Your previous JSON output was invalid.",
         "Return the same content as labeled plain text so it can be converted into structured fields.",
         `Task: ${task.goal}`,
@@ -278,7 +321,7 @@ async function executeAndReviewTaskAttempt(
   task.workerResult = await runExecutor(
     executor,
     prompt,
-    buildRetryPrompt(task.goal, expectedOutput, task.role),
+    buildRetryPrompt(task.goal, expectedOutput, task.role, executorAllowsWorkspaceAccess(executor)),
     expectedOutput,
     task.structuredMode,
   );
@@ -336,15 +379,95 @@ async function runParallelWithLimit(
   return results;
 }
 
-export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
+function buildPlannerContext(previousTask: WorkflowTask): string | null {
+  if (
+    previousTask.phase !== "completed"
+    || previousTask.structuredMode !== "deepwork-planner"
+    || !previousTask.workerResult?.parsed
+  ) {
+    return null;
+  }
+
+  return [
+    "Planner context from the previous accepted task:",
+    JSON.stringify(previousTask.workerResult.parsed, null, 2),
+    "Use this planner context as the primary implementation constraint.",
+  ].join("\n");
+}
+
+async function injectPlannerContextIfNeeded(
+  rootDir: string,
+  task: WorkflowTask,
+  previousTask: WorkflowTask | undefined,
+): Promise<WorkflowTask> {
+  if (task.structuredMode !== "deepwork-implementer" || task.workerPrompt.includes("Planner context from the previous accepted task:")) {
+    return task;
+  }
+
+  const plannerContext = previousTask ? buildPlannerContext(previousTask) : null;
+  if (!plannerContext) {
+    return task;
+  }
+
+  const updated: WorkflowTask = {
+    ...task,
+    workerPrompt: `${plannerContext}\n\n${task.workerPrompt}`,
+    updatedAt: new Date().toISOString(),
+  };
+  await saveTask(rootDir, updated);
+  return updated;
+}
+
+function shouldBlockOnPlannerPrerequisite(task: WorkflowTask, previousTask: WorkflowTask | undefined): boolean {
+  return task.structuredMode === "deepwork-implementer"
+    && previousTask?.structuredMode === "deepwork-planner"
+    && previousTask.phase !== "completed";
+}
+
+async function blockOnPlannerPrerequisite(
+  rootDir: string,
+  batchId: string,
+  task: WorkflowTask,
+  previousTask: WorkflowTask,
+): Promise<WorkflowTask> {
+  const now = new Date().toISOString();
+  const reason = `Planner prerequisite did not complete; previous planner phase is ${previousTask.phase}.`;
+  const blockedTask: WorkflowTask = {
+    ...task,
+    phase: "blocked",
+    updatedAt: now,
+    workerResult: {
+      status: "failed",
+      stdout: "",
+      stderr: reason,
+      exitCode: 1,
+      startedAt: now,
+      finishedAt: now,
+      attempts: 0,
+      failureCategory: "unknown",
+    },
+    review: {
+      decision: "reject",
+      summary: reason,
+      issues: [reason],
+      reviewedAt: now,
+    },
+  };
+
+  await saveTask(rootDir, blockedTask);
+  await logTaskComplete(rootDir, batchId, blockedTask.id, blockedTask.phase).catch(() => {});
+  return blockedTask;
+}
+
+export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"], allowWorkspaceAccess = false): string {
   const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
   if (expected === "schema" && deepworkSchema) {
-    return buildDeepworkSchemaInstructions(goal, role, false).join("\n");
+    return buildDeepworkSchemaInstructions(goal, role, false, allowWorkspaceAccess).join("\n");
   }
 
   if (expected === "artifact") {
     return [
-      ...buildArtifactInstructions(goal, role),
+      ...buildArtifactInstructions(goal, role, allowWorkspaceAccess),
       `Task: ${goal}`,
     ].join("\n");
   }
@@ -357,16 +480,16 @@ export function buildWorkerPrompt(goal: string, expected: "schema" | "artifact",
   ].join("\n");
 }
 
-export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"]): string {
+export function buildRetryPrompt(goal: string, expected: "schema" | "artifact", role?: WorkflowTask["role"], allowWorkspaceAccess = false): string {
   const deepworkSchema = isDeepworkStructuredGoal(goal) ? deepworkSchemaForRole(role) : null;
   if (expected === "schema" && deepworkSchema) {
-    return buildDeepworkSchemaInstructions(goal, role, true).join("\n");
+    return buildDeepworkSchemaInstructions(goal, role, true, allowWorkspaceAccess).join("\n");
   }
 
   if (expected === "artifact") {
     const retryLines = [
       "Retry.",
-      ...buildArtifactInstructions(goal, role),
+      ...buildArtifactInstructions(goal, role, allowWorkspaceAccess),
     ];
 
     if (role === "implementer") {
@@ -406,6 +529,7 @@ export async function createTask(
   const expectedOutput = isDeepworkStructuredGoal(goal)
     ? "schema"
     : expectedOutputMode(config.executors[executorName]?.artifactMode);
+  const allowWorkspaceAccess = executorAllowsWorkspaceAccess(config.executors[executorName]);
   const task: WorkflowTask = {
     id: crypto.randomUUID(),
     goal,
@@ -413,7 +537,7 @@ export async function createTask(
     phase: "planned",
     createdAt: now,
     updatedAt: now,
-    workerPrompt: buildWorkerPrompt(goal, expectedOutput, inferredRole),
+    workerPrompt: buildWorkerPrompt(goal, expectedOutput, inferredRole, allowWorkspaceAccess),
     expectedOutput,
     route,
     execMode: overrides?.execMode,
@@ -470,7 +594,7 @@ export async function runTaskWithFallbacks(
       return task;
     }
 
-    const recovery = classifyRecoveryAction(task, executorName);
+    const recovery = classifyRecoveryAction(task, executorName, effectiveExecutor.timeoutMs);
     if (recovery.kind === "retry-same-executor") {
       const recoveredExecutor = {
         ...effectiveExecutor,
@@ -568,8 +692,13 @@ function summarizeBatchPhase(tasks: WorkflowTask[]): "completed" | "blocked" | "
   const hasBlocked = tasks.some((task) => task.phase === "blocked");
   const hasCompleted = tasks.some((task) => task.phase === "completed");
   const hasDelegated = tasks.some((task) => task.phase === "delegated_to_codex");
+  const hasHostApplyPending = tasks.some((task) => task.phase === "host_apply_pending");
 
   if (hasBlocked && hasCompleted) {
+    return "partial";
+  }
+
+  if (hasHostApplyPending) {
     return "partial";
   }
 
@@ -594,6 +723,10 @@ function summarizeBatchPhase(tasks: WorkflowTask[]): "completed" | "blocked" | "
  * parsed.status === "blocked" is a hard constraint that review cannot override.
  */
 export function resolveTaskPhase(task: WorkflowTask): WorkflowTask["phase"] {
+  if (isHostApplyPendingCandidate(task)) {
+    return "host_apply_pending";
+  }
+
   // (1) Hard constraint: if the verifier or worker self-reported blocked, phase MUST be blocked
   const verifyResult = verifyTaskCompletion(task);
   if (verifyResult.verdict === "blocked") {
@@ -724,7 +857,13 @@ export async function runTaskBatch(
     ? await runParallelWithLimit(tasks, config.maxParallel ?? 0, runDispatchedTask)
     : await tasks.reduce<Promise<WorkflowTask[]>>(async (promise, task) => {
       const results = await promise;
-      const completed = await runDispatchedTask(task);
+      const previousTask = results.at(-1);
+      if (previousTask && shouldBlockOnPlannerPrerequisite(task, previousTask)) {
+        results.push(await blockOnPlannerPrerequisite(rootDir, batchId, task, previousTask));
+        return results;
+      }
+      const taskWithContext = await injectPlannerContextIfNeeded(rootDir, task, previousTask);
+      const completed = await runDispatchedTask(taskWithContext);
       results.push(completed);
       return results;
     }, Promise.resolve([]));
@@ -784,7 +923,13 @@ export async function resumeTaskBatch(
     ? await runParallelWithLimit(preparedPendingTasks, config.maxParallel ?? 0, runDispatchedTask)
     : await preparedPendingTasks.reduce<Promise<WorkflowTask[]>>(async (promise, task) => {
       const results = await promise;
-      results.push(await runDispatchedTask(task));
+      const previousTask = results.at(-1);
+      if (previousTask && shouldBlockOnPlannerPrerequisite(task, previousTask)) {
+        results.push(await blockOnPlannerPrerequisite(rootDir, batch.id, task, previousTask));
+        return results;
+      }
+      const taskWithContext = await injectPlannerContextIfNeeded(rootDir, task, previousTask);
+      results.push(await runDispatchedTask(taskWithContext));
       return results;
     }, Promise.resolve([]));
 

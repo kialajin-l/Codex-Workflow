@@ -62,6 +62,31 @@ describe("workflow prompts", () => {
     assert.match(prompt, /Do not mention the workflow, retries, tasks, batches, logs, state, or existing files/i);
     assert.match(prompt, /Do not output tables, bullet lists, code blocks, file paths, or status summaries/i);
   });
+
+  it("allows workspace access in prompts for workspace-capable executors", () => {
+    const prompt = buildWorkerPrompt(
+      "Ship a health endpoint - implement the highest-value next step and return a concrete deliverable",
+      "schema",
+      "implementer",
+      true,
+    );
+
+    assert.match(prompt, /You may inspect and edit files in the current workspace/i);
+    assert.match(prompt, /Only claim files were created, edited, or verified when that actually happened/i);
+    assert.doesNotMatch(prompt, /You do not have repository or filesystem access/i);
+  });
+
+  it("keeps non-workspace executor prompts artifact-only", () => {
+    const prompt = buildWorkerPrompt(
+      "Ship a health endpoint - implement the highest-value next step and return a concrete deliverable",
+      "schema",
+      "implementer",
+      false,
+    );
+
+    assert.match(prompt, /You do not have repository or filesystem access/i);
+    assert.doesNotMatch(prompt, /You may inspect and edit files in the current workspace/i);
+  });
 });
 
 describe("structured payload parsing", () => {
@@ -156,6 +181,47 @@ describe("structured payload parsing", () => {
     const record = payload as unknown as Record<string, unknown>;
     assert.equal(record.deliverable, "Add GET /health returning 200");
     assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+
+  it("salvages implementer payload from numbered section headings", () => {
+    const payload = parseWorkerPayload([
+      "Summary: Proposed the next change",
+      "Changes: Specified the deliverable and next step",
+      "Risks: No file edits were made",
+      "1. Deliverable",
+      "Add GET /health returning 200",
+      "2. Assumptions",
+      "- Node service uses Express",
+      "3. Next step",
+      "Implement the route in the API layer",
+    ].join("\n"), "deepwork-implementer");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.deliverable, "Add GET /health returning 200");
+    assert.deepEqual(record.assumptions, ["Node service uses Express"]);
+    assert.equal(record.nextStep, "Implement the route in the API layer");
+  });
+
+  it("salvages planner payload from numbered section headings", () => {
+    const payload = parseWorkerPayload([
+      "Summary: Created a plan",
+      "Changes: Outlined the next steps",
+      "Risks: Endpoint wiring may touch routing",
+      "1. Goal",
+      "Ship a health endpoint",
+      "2. Assumptions",
+      "- Express app already exists",
+      "3. Steps",
+      "- Add route",
+      "- Add test",
+    ].join("\n"), "deepwork-planner");
+
+    assert.ok(payload);
+    const record = payload as unknown as Record<string, unknown>;
+    assert.equal(record.goal, "Ship a health endpoint");
+    assert.deepEqual(record.assumptions, ["Express app already exists"]);
+    assert.deepEqual(record.steps, ["Add route", "Add test"]);
   });
 
   it("salvages planner payload from full-width labels and unicode bullets", () => {
@@ -954,6 +1020,30 @@ describe("artifact review", () => {
     assert.equal(review.decision, "accept");
   });
 
+  it("accepts artifact output with numbered section headings", () => {
+    const review = reviewWorkerResultForMode({
+      status: "ok",
+      stdout: [
+        "1. Deliverable",
+        "",
+        "Validation Plan: Small CLI Workflow",
+        "",
+        "2. Assumptions",
+        "- CLI output is deterministic.",
+        "",
+        "3. Next step",
+        "- Write the first smoke test.",
+      ].join("\n"),
+      stderr: "",
+      exitCode: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attempts: 1,
+    }, "artifact");
+
+    assert.equal(review.decision, "accept");
+  });
+
   it("rejects generic artifact text without the expected structure", () => {
     const review = reviewWorkerResultForMode({
       status: "ok",
@@ -1103,6 +1193,93 @@ describe("regression: blocked status with fallback payload", () => {
     assert.ok(fallback);
     assert.equal(fallback.status, "blocked",
       "Fallback payload should be blocked because it has no real executor artifact");
+  });
+});
+
+describe("host-apply pending implementer artifacts", () => {
+  it("resolves blocked implementer output with a deliverable to host_apply_pending", () => {
+    const phase = resolveTaskPhase({
+      id: "test",
+      goal: "Ship slugify - implement the highest-value next step and return a concrete deliverable",
+      executor: "mock",
+      phase: "review",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer",
+      role: "implementer",
+      workerResult: {
+        status: "ok",
+        source: "executor",
+        stdout: JSON.stringify({
+          summary: "Created a host-applicable slugify artifact.",
+          changes: "Provided complete slugify.js content.",
+          risks: "Worker cannot write files directly.",
+          status: "blocked",
+          deliverable: "Create slugify.js with a slugify(input) function and inline assertions.",
+          assumptions: ["Node.js is available"],
+          nextStep: "Host agent should create slugify.js and run node slugify.js.",
+        }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        parsed: {
+          summary: "Created a host-applicable slugify artifact.",
+          changes: "Provided complete slugify.js content.",
+          risks: "Worker cannot write files directly.",
+          status: "blocked",
+          deliverable: "Create slugify.js with a slugify(input) function and inline assertions.",
+          assumptions: ["Node.js is available"],
+          nextStep: "Host agent should create slugify.js and run node slugify.js.",
+        } as any,
+      },
+      review: { decision: "accept", summary: "accepted", issues: [], reviewedAt: new Date().toISOString() },
+    } as WorkflowTask);
+
+    assert.equal(phase, "host_apply_pending");
+  });
+
+  it("summarizes host-apply pending tasks separately from blocked tasks", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-host-apply-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "host-apply-worker.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stdout.write(JSON.stringify({",
+      "  summary: 'Created a host-applicable slugify artifact.',",
+      "  changes: 'Provided complete slugify.js content.',",
+      "  risks: 'Worker cannot write files directly.',",
+      "  status: 'blocked',",
+      "  deliverable: 'Create slugify.js with a slugify(input) function and inline assertions.',",
+      "  assumptions: ['Node.js is available'],",
+      "  nextStep: 'Host agent should create slugify.js and run node slugify.js.'",
+      "}));",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      ["Ship slugify - implement the highest-value next step and return a concrete deliverable"],
+      "mock",
+      config,
+      "parallel",
+    );
+
+    assert.equal(batch.phase, "partial");
+    assert.equal(batch.tasks[0]?.phase, "host_apply_pending");
+    assert.equal(batch.summary?.blocked, 0);
+    assert.equal((batch.summary as any)?.hostApplyPending, 1);
+    assert.equal(batch.summary?.nextSteps.some((step) => /host agent|apply/i.test(step)), true);
   });
 });
 
@@ -1404,6 +1581,133 @@ describe("deepwork batch integration without route", () => {
       "implementer prompt must contain deepwork implementer schema");
     assert.match(implementerTask.workerPrompt, /"nextStep":"string"/,
       "implementer prompt must contain nextStep in schema");
+  });
+
+  it("injects completed planner context into the following serial implementer task", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-planner-context-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "planner-context-worker.js");
+    await fs.writeFile(mockScriptPath, [
+      "const prompt = process.argv[2] ?? '';",
+      "if (prompt.includes('produce a short implementation plan')) {",
+      "  process.stdout.write(JSON.stringify({",
+      "    summary: 'Use TypeScript for slugify.',",
+      "    changes: 'Plan src/utils/slugify.ts and tests/slugify.test.ts.',",
+      "    risks: 'none',",
+      "    status: 'ok',",
+      "    goal: 'Ship slugify',",
+      "    assumptions: ['Project uses TypeScript'],",
+      "    steps: ['Create src/utils/slugify.ts', 'Create tests/slugify.test.ts']",
+      "  }));",
+      "} else if (prompt.includes('Planner context') && prompt.includes('src/utils/slugify.ts')) {",
+      "  process.stdout.write(JSON.stringify({",
+      "    summary: 'Prepared TypeScript slugify artifact.',",
+      "    changes: 'Used planner path and language.',",
+      "    risks: 'Worker cannot write files directly.',",
+      "    status: 'blocked',",
+      "    deliverable: 'Create src/utils/slugify.ts and tests/slugify.test.ts.',",
+      "    assumptions: ['Project uses TypeScript'],",
+      "    nextStep: 'Host agent should apply the TypeScript files.'",
+      "  }));",
+      "} else {",
+      "  process.stdout.write(JSON.stringify({",
+      "    summary: 'Planner context missing.',",
+      "    changes: 'No implementation artifact.',",
+      "    risks: 'Implementer did not receive planner output.',",
+      "    status: 'blocked',",
+      "    deliverable: '',",
+      "    assumptions: ['Unknown project language'],",
+      "    nextStep: 'Retry with planner context.'",
+      "  }));",
+      "}",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      [
+        "Ship slugify - produce a short implementation plan",
+        "Ship slugify - implement the highest-value next step and return a concrete deliverable",
+      ],
+      "mock",
+      config,
+      "serial",
+    );
+
+    assert.equal(batch.tasks[0]?.phase, "completed");
+    assert.equal(batch.tasks[1]?.phase, "host_apply_pending");
+    assert.match(batch.tasks[1]?.workerPrompt ?? "", /Planner context/i);
+    assert.match(batch.tasks[1]?.workerPrompt ?? "", /src\/utils\/slugify\.ts/i);
+  });
+
+  it("blocks a serial implementer when the preceding planner did not complete", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-planner-gate-"));
+    cleanupDirs.add(rootDir);
+    const mockScriptPath = path.join(rootDir, "planner-gate-worker.js");
+    const implementerCalledPath = path.join(rootDir, "implementer-called.txt");
+    await fs.writeFile(mockScriptPath, [
+      "const fs = require('node:fs');",
+      "const prompt = process.argv[2] ?? '';",
+      "if (prompt.includes('produce a short implementation plan')) {",
+      "  process.stdout.write(JSON.stringify({",
+      "    summary: 'Planner cannot proceed.',",
+      "    changes: 'No plan produced.',",
+      "    risks: 'Missing project context.',",
+      "    status: 'blocked',",
+      "    goal: 'Ship slugify',",
+      "    assumptions: ['Unknown project language'],",
+      "    steps: ['Retry planner with context']",
+      "  }));",
+      "} else {",
+      `  fs.writeFileSync(${JSON.stringify(implementerCalledPath)}, 'called');`,
+      "  process.stdout.write(JSON.stringify({",
+      "    summary: 'Implementer should not run.',",
+      "    changes: 'Unexpected execution.',",
+      "    risks: 'Dependency gate failed.',",
+      "    status: 'blocked',",
+      "    deliverable: 'unexpected',",
+      "    assumptions: ['none'],",
+      "    nextStep: 'fix gate'",
+      "  }));",
+      "}",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      [
+        "Ship slugify - produce a short implementation plan",
+        "Ship slugify - implement the highest-value next step and return a concrete deliverable",
+      ],
+      "mock",
+      config,
+      "serial",
+    );
+
+    assert.equal(batch.tasks[0]?.phase, "blocked");
+    assert.equal(batch.tasks[1]?.phase, "blocked");
+    await assert.rejects(fs.access(implementerCalledPath));
+    assert.match(batch.tasks[1]?.review?.summary ?? "", /planner/i);
   });
 });
 

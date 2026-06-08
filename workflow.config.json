@@ -21,19 +21,14 @@
       "timeoutMs": 300000
     },
     "opencode": {
-      "mode": "spawn",
+      "mode": "serve",
       "command": "opencode",
-      "args": [
-        "run",
-        "--pure",
-        "--format",
-        "json",
-        "--model",
-        "deepseek/deepseek-v4-flash"
-      ],
-      "probePrompt": "Say exactly hello",
+      "args": [],
+      "endpoint": "http://127.0.0.1:4196",
+      "model": "deepseek/deepseek-v4-flash",
+      "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
       "artifactMode": "text",
-      "timeoutMs": 180000
+      "timeoutMs": 90000
     },
     "opencode-pro": {
       "mode": "spawn",
@@ -94,18 +89,13 @@
       "timeoutMs": 180000
     },
     "mimo-free": {
-      "mode": "spawn",
+      "mode": "serve",
       "command": "opencode",
-      "args": [
-        "run",
-        "--pure",
-        "--format",
-        "json",
-        "--model",
-        "opencode/mimo-v2.5-free"
-      ],
+      "args": [],
+      "endpoint": "http://127.0.0.1:4196",
+      "model": "opencode/mimo-v2.5-free",
       "probePrompt": "Return exactly this JSON object: {\"summary\":\"probe ok\",\"changes\":\"none\",\"risks\":\"low\",\"status\":\"ok\"}",
-      "artifactMode": "text",
+      "artifactMode": "schema",
       "timeoutMs": 180000
     },
     "mimo-flash": {

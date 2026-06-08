@@ -1,0 +1,56 @@
+{
+  "name": "review-pipeline",
+  "hooks": {
+    "task.before_dispatch.json": {
+      "event": "task:before_dispatch",
+      "default_exec_mode": "codex",
+      "rules": [
+        {
+          "when": { "route.role": "reviewer", "route.complexity": "high" },
+          "then": { "exec_mode": "cli", "executor": "opencode-pro", "enable_mcp": ["github", "filesystem"] }
+        },
+        {
+          "when": { "route.role": "reviewer", "route.complexity": "low" },
+          "then": { "executor": "opencode" }
+        },
+        {
+          "when": { "route.role": "debugger", "route.source": "review" },
+          "then": { "exec_mode": "cli", "executor": "opencode-serve" }
+        },
+        {
+          "when": { "route.role": "summarizer" },
+          "then": { "executor": "opencode" }
+        }
+      ]
+    },
+    "task.after_result.json": {
+      "event": "task:after_result",
+      "rules": [
+        {
+          "when": { "route.role": "reviewer" },
+          "then": { "action": "lint" }
+        },
+        {
+          "when": { "route.role": "debugger" },
+          "then": { "action": "lint" }
+        }
+      ]
+    },
+    "review.after.json": {
+      "event": "review:after",
+      "rules": [
+        {
+          "when": { "workerResult.status": "changes_requested" },
+          "then": { "action": "notify", "message": "Review requested changes - run a debugger follow-up task" }
+        },
+        {
+          "when": { "workerResult.status": "approved" },
+          "then": { "action": "notify", "message": "Review approved - summarize the final state manually if needed" }
+        }
+      ]
+    }
+  },
+  "skills": {
+    "review-prompt.md": "# Review Pipeline\n\nYou are part of a review-focused workflow preset.\n\n## Roles\n- **reviewer**: Examines code changes for correctness, style, and edge cases. Set `status` to `approved` or `changes_requested`, and include `feedback` listing specific issues.\n- **debugger**: Receives reviewer feedback and addresses each issue. Reference the exact feedback items in your response.\n- **summarizer**: Compile the full review cycle into a short report with verdict, issues found, fixes applied, and final status.\n\n## Rules\n1. Each role outputs structured JSON with `status`, `summary`, `changes`, and `risks`.\n2. The reviewer must always provide actionable feedback when rejecting.\n3. The debugger must address every feedback item.\n4. The current preset emits notifications only; create follow-up tasks manually when review asks for changes.\n"
+  }
+}

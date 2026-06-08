@@ -125,6 +125,14 @@ npm run install-plugin
 - `~/.codex/codex-workflow/runtime/`
 - `~/.codex/codex-workflow/bin/`
 
+如果 `codex plugin add` 在 Windows 上提示 access denied / 拒绝访问，通常只是 Codex App 插件缓存正在被占用或缓存目录 ACL 阻止备份。此时 runtime、wrapper、skills 和本地 marketplace 通常已经安装完成。关闭或重启 Codex App 后，手动重试：
+
+```powershell
+codex plugin add codex-workflow@kiala-local-plugins
+```
+
+这一步用于刷新 App 侧插件缓存，让 `/deepwork` 能在对话框中出现。
+
 ### 现阶段的边界
 
 当前仓库提供的是：

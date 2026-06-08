@@ -213,8 +213,9 @@ function installCodexPlugin(marketplaceName) {
   });
 
   if (result.error) {
-    console.warn(`Could not run codex plugin add automatically: ${result.error.message}`);
-    console.warn(`Run manually after install: codex plugin add ${selector}`);
+    console.warn(`Could not refresh the Codex App plugin cache automatically: ${result.error.message}`);
+    console.warn("Runtime, wrappers, skills, and the local marketplace entry were still installed.");
+    console.warn(`After closing Codex App, retry manually: codex plugin add ${selector}`);
     return;
   }
 
@@ -230,8 +231,9 @@ function installCodexPlugin(marketplaceName) {
     if (result.stderr) {
       console.warn(result.stderr.trim());
     }
-    console.warn(`codex plugin add exited with code ${result.status}.`);
-    console.warn(`Run manually after install: codex plugin add ${selector}`);
+    console.warn(`codex plugin add exited with code ${result.status}; runtime installation still completed.`);
+    console.warn("If this was a Windows access-denied error, close Codex App and retry so its plugin cache is not locked.");
+    console.warn(`Manual retry command: codex plugin add ${selector}`);
     return;
   }
 
@@ -245,12 +247,11 @@ function writeWindowsCmdWrapper() {
   const content = [
     "@echo off",
     "setlocal",
+    "set CODEX_WORKFLOW_CALLER_CWD=%CD%",
     "set SCRIPT_DIR=%~dp0",
     "set RUNTIME_DIR=%SCRIPT_DIR%..\\runtime",
-    "pushd \"%RUNTIME_DIR%\" >nul",
-    "node dist\\index.js %*",
+    "node \"%RUNTIME_DIR%\\dist\\index.js\" %*",
     "set EXIT_CODE=%ERRORLEVEL%",
-    "popd >nul",
     "exit /b %EXIT_CODE%",
     "",
   ].join("\r\n");
@@ -261,15 +262,12 @@ function writePowerShellWrapper() {
   const filePath = path.join(binDir, "cwf.ps1");
   const content = [
     "$ErrorActionPreference = 'Stop'",
+    "$env:CODEX_WORKFLOW_CALLER_CWD = (Get-Location).Path",
     "$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path",
     "$runtimeDir = Join-Path $scriptDir '..\\runtime'",
-    "Push-Location $runtimeDir",
-    "try {",
-    "  & node 'dist/index.js' @args",
-    "  exit $LASTEXITCODE",
-    "} finally {",
-    "  Pop-Location",
-    "}",
+    "$entry = Join-Path $runtimeDir 'dist/index.js'",
+    "& node $entry @args",
+    "exit $LASTEXITCODE",
     "",
   ].join("\r\n");
   fs.writeFileSync(filePath, content, "utf8");
@@ -280,10 +278,10 @@ function writeUnixWrapper() {
   const content = [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
+    "export CODEX_WORKFLOW_CALLER_CWD=\"${PWD}\"",
     "SCRIPT_DIR=\"$(cd -- \"$(dirname -- \"${BASH_SOURCE[0]}\")\" && pwd)\"",
     "RUNTIME_DIR=\"${SCRIPT_DIR}/../runtime\"",
-    "cd \"${RUNTIME_DIR}\"",
-    "exec node dist/index.js \"$@\"",
+    "exec node \"${RUNTIME_DIR}/dist/index.js\" \"$@\"",
     "",
   ].join("\n");
   fs.writeFileSync(filePath, content, "utf8");

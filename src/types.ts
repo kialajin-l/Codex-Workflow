@@ -4,6 +4,7 @@ export type WorkflowPhase =
   | "review"
   | "completed"
   | "blocked"
+  | "host_apply_pending"
   | "delegated_to_codex";
 export type ExecutorMode = "spawn" | "serve";
 export type ExecMode = "cli" | "codex";
@@ -147,6 +148,7 @@ export interface BatchSummary {
   totalTasks: number;
   completed: number;
   blocked: number;
+  hostApplyPending: number;
   delegated: number;
   resultSources: {
     executor: number;

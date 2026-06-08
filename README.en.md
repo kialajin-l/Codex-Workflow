@@ -125,6 +125,14 @@ It also ensures:
 - `~/.codex/codex-workflow/runtime/`
 - `~/.codex/codex-workflow/bin/`
 
+If `codex plugin add` fails with a Windows access-denied error, the runtime install may still be usable through the wrapper scripts. Close or restart the Codex App, then retry:
+
+```powershell
+codex plugin add codex-workflow@kiala-local-plugins
+```
+
+This refreshes the App-side plugin cache so `/deepwork` can appear in the composer.
+
 ### What this repo supports today
 
 - local source install

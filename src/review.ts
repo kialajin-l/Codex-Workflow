@@ -33,14 +33,69 @@ export function extractJsonObject(stdout: string): string | null {
   return output.slice(start, end + 1);
 }
 
+function labelPattern(label: string, suffix: string): RegExp {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*(?:\\d+[.)]\\s*)?${escaped}${suffix}`, "i");
+}
+
+const KNOWN_SECTION_LABELS = [
+  "summary",
+  "result",
+  "overview",
+  "changes",
+  "change",
+  "work",
+  "deliverable",
+  "risks",
+  "risk",
+  "caveats",
+  "status",
+  "goal",
+  "target",
+  "assumptions",
+  "assumption",
+  "steps",
+  "plan",
+  "implementation steps",
+  "output",
+  "implementation",
+  "next step",
+  "nextstep",
+  "follow-up",
+];
+
+function isKnownSectionHeader(line: string): boolean {
+  return KNOWN_SECTION_LABELS.some((label) => labelPattern(label, "\\s*(?::|：)?\\s*$").test(line));
+}
+
 function readLabeledField(text: string, labels: string[]): string | null {
   const lines = text.split(/\r?\n/);
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     for (const label of labels) {
-      const pattern = new RegExp(`^\\s*${label}\\s*[:：]\\s*(.+)$`, "i");
-      const match = line.match(pattern);
+      const match = line.match(labelPattern(label, "\\s*(?::|：)\\s*(.+)$"));
       if (match?.[1]?.trim()) {
         return match[1].trim();
+      }
+
+      if (labelPattern(label, "\\s*(?::|：)?\\s*$").test(line)) {
+        const block: string[] = [];
+        for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+          const nextLine = lines[nextIndex];
+          if (!nextLine.trim()) {
+            if (block.length > 0) {
+              break;
+            }
+            continue;
+          }
+          if (isKnownSectionHeader(nextLine)) {
+            break;
+          }
+          block.push(nextLine.trim());
+        }
+        if (block.length > 0) {
+          return block.join(" ").trim();
+        }
       }
     }
   }
@@ -54,7 +109,7 @@ function readBulletBlock(text: string, labels: string[]): string[] {
 
   for (const line of lines) {
     if (!collecting) {
-      const startsSection = labels.some((label) => new RegExp(`^\\s*${label}\\s*[:：]?\\s*$`, "i").test(line));
+      const startsSection = labels.some((label) => labelPattern(label, "\\s*(?::|：)?\\s*$").test(line));
       if (startsSection) {
         collecting = true;
         continue;
@@ -72,7 +127,7 @@ function readBulletBlock(text: string, labels: string[]): string[] {
       continue;
     }
 
-    if (/^\s*[A-Za-z][A-Za-z ]+\s*[:：]\s*/.test(line) && !/^\s*(?:[-*•]|\d+[.)])/.test(line)) {
+    if (isKnownSectionHeader(line)) {
       break;
     }
 
@@ -274,14 +329,14 @@ function hasExpectedArtifactStructure(output: string): boolean {
     return false;
   }
 
-  const hasDeliverable = /(?:^|\n)\s*(?:1\.\s*)?deliverable\s*[:\-]/i.test(normalized);
-  const hasGoal = /(?:^|\n)\s*(?:1\.\s*)?goal\s*[:\-]/i.test(normalized);
-  const hasVerdict = /(?:^|\n)\s*(?:1\.\s*)?verdict\s*[:\-]/i.test(normalized);
-  const hasAssumptions = /(?:^|\n)\s*(?:2\.\s*)?assumptions\s*[:\-]/i.test(normalized);
-  const hasSteps = /(?:^|\n)\s*(?:3\.\s*)?steps\s*[:\-]/i.test(normalized);
-  const hasFindings = /(?:^|\n)\s*(?:2\.\s*)?findings\s*[:\-]/i.test(normalized);
-  const hasRisks = /(?:^|\n)\s*(?:4\.\s*)?risks\s*[:\-]/i.test(normalized);
-  const hasNextStep = /(?:^|\n)\s*(?:3\.\s*)?next step\s*[:\-]/i.test(normalized);
+  const hasDeliverable = /(?:^|\n)\s*(?:1\.\s*)?deliverable\s*(?::|-|\n|$)/i.test(normalized);
+  const hasGoal = /(?:^|\n)\s*(?:1\.\s*)?goal\s*(?::|-|\n|$)/i.test(normalized);
+  const hasVerdict = /(?:^|\n)\s*(?:1\.\s*)?verdict\s*(?::|-|\n|$)/i.test(normalized);
+  const hasAssumptions = /(?:^|\n)\s*(?:2\.\s*)?assumptions\s*(?::|-|\n|$)/i.test(normalized);
+  const hasSteps = /(?:^|\n)\s*(?:3\.\s*)?steps\s*(?::|-|\n|$)/i.test(normalized);
+  const hasFindings = /(?:^|\n)\s*(?:2\.\s*)?findings\s*(?::|-|\n|$)/i.test(normalized);
+  const hasRisks = /(?:^|\n)\s*(?:4\.\s*)?risks\s*(?::|-|\n|$)/i.test(normalized);
+  const hasNextStep = /(?:^|\n)\s*(?:3\.\s*)?next step\s*(?::|-|\n|$)/i.test(normalized);
 
   if (hasDeliverable && hasAssumptions && hasNextStep) {
     return true;

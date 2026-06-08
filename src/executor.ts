@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ExecutorConfig, WorkerResult, WorkflowTask } from "./types.js";
@@ -74,6 +75,22 @@ function buildWorkerResultOutput(executor: ExecutorConfig, stdout: string): {
   };
 }
 
+function buildWorkerResultOutputForStatus(executor: ExecutorConfig, stdout: string, status: WorkerResult["status"]): {
+  parsed?: WorkerResult["parsed"];
+  artifact?: WorkerResult["artifact"];
+} {
+  if (status !== "ok") {
+    const parsedPayload = parseWorkerPayload(stdout);
+    const artifact = extractWorkerArtifact(stdout);
+    return {
+      parsed: parsedPayload ?? undefined,
+      artifact: artifact ?? undefined,
+    };
+  }
+
+  return buildWorkerResultOutput(executor, stdout);
+}
+
 async function createSdkInstance(port: number): Promise<OpencodeSdkInstance> {
   const indexUrl = pathToFileURL(SDK_INDEX_PATH).href;
   const sdk = await import(indexUrl) as {
@@ -99,12 +116,56 @@ async function createSdkClient(baseUrl: string): Promise<OpencodeClientOnly> {
   return sdk.createOpencodeClient({ baseUrl });
 }
 
+async function connectServeClientWhenReady(baseUrl: string, attempts = 20, delayMs = 250): Promise<OpencodeClientOnly> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const client = await createSdkClient(baseUrl);
+      await client.path.get();
+      return client;
+    } catch (error) {
+      lastError = error;
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function acquireServeStartupLock(baseUrl: string): Promise<() => void> {
+  const lockRoot = path.join(os.tmpdir(), "codex-workflow");
+  mkdirSync(lockRoot, { recursive: true });
+  const lockName = baseUrl.replace(/[^a-zA-Z0-9.-]+/g, "_");
+  const lockDir = path.join(lockRoot, `${lockName}.lock`);
+  const staleMs = 30000;
+
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      mkdirSync(lockDir);
+      return () => rmSync(lockDir, { recursive: true, force: true });
+    } catch {
+      try {
+        const ageMs = Date.now() - statSync(lockDir).mtimeMs;
+        if (ageMs > staleMs) {
+          rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // If the lock disappeared between checks, retry immediately.
+      }
+      await sleep(250);
+    }
+  }
+
+  throw new Error(`Timed out waiting for opencode serve startup lock: ${baseUrl}`);
+}
+
 async function acquireServeClient(executor: ExecutorConfig): Promise<{
   key: string;
   client: OpencodeClientOnly;
 }> {
   const baseUrl = executor.endpoint ?? "http://127.0.0.1:4196";
-  const key = `${baseUrl}::${executor.model ?? ""}`;
+  const key = baseUrl;
   const existing = sharedServeHandles.get(key);
   if (existing) {
     existing.refs += 1;
@@ -127,8 +188,22 @@ async function acquireServeClient(executor: ExecutorConfig): Promise<{
       client = await createSdkClient(baseUrl);
       await client.path.get();
     } catch {
-      instance = await createSdkInstance(port);
-      client = instance.client;
+      const releaseStartupLock = await acquireServeStartupLock(baseUrl);
+      try {
+        try {
+          client = await createSdkClient(baseUrl);
+          await client.path.get();
+        } catch {
+          try {
+            instance = await createSdkInstance(port);
+            client = instance.client;
+          } catch {
+            client = await connectServeClientWhenReady(baseUrl);
+          }
+        }
+      } finally {
+        releaseStartupLock();
+      }
     }
 
     const handle: SharedServeHandle = {
@@ -240,20 +315,20 @@ function buildServePromptBody(
     model: parseModel(executor.model),
     agent: "general",
     system: [
-      "Answer the user's request directly in this session.",
-      "Do not inspect the repository unless the prompt explicitly asks for it.",
+      "Answer the user's request directly in the current workspace.",
+      "Inspect or edit repository files when the prompt allows workspace access.",
+      "Only claim file edits or verification commands that actually completed.",
       "Do not start subagents.",
-      "Do not use tools.",
       "Return only the final answer requested by the prompt.",
     ].join(" "),
     tools: {
-      bash: false,
-      read: false,
-      list: false,
-      glob: false,
-      grep: false,
-      edit: false,
-      write: false,
+      bash: true,
+      read: true,
+      list: true,
+      glob: true,
+      grep: true,
+      edit: true,
+      write: true,
       apply_patch: false,
       task: false,
       webfetch: false,
@@ -564,10 +639,14 @@ function buildSpawnInvocation(command: string, args: string[], prompt: string): 
   args: string[];
   shell: boolean;
 } {
+  const spawnArgs = command === "opencode"
+    ? prepareOpencodeArgs(args)
+    : args;
+
   if (process.platform !== "win32") {
     return {
       command,
-      args: [...args, prompt],
+      args: [...spawnArgs, prompt],
       shell: false,
     };
   }
@@ -577,7 +656,7 @@ function buildSpawnInvocation(command: string, args: string[], prompt: string): 
   if (!resolved) {
     return {
       command,
-      args: [...args, promptArg],
+      args: [...spawnArgs, promptArg],
       shell: true,
     };
   }
@@ -588,7 +667,7 @@ function buildSpawnInvocation(command: string, args: string[], prompt: string): 
     if (npmExe) {
       return {
         command: npmExe,
-        args: [...args, promptArg],
+        args: [...spawnArgs, promptArg],
         shell: false,
       };
     }
@@ -597,16 +676,80 @@ function buildSpawnInvocation(command: string, args: string[], prompt: string): 
   if (ext === ".ps1") {
     return {
       command: "powershell.exe",
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolved, ...args, promptArg],
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolved, ...spawnArgs, promptArg],
       shell: false,
     };
   }
 
   return {
     command: resolved,
-    args: [...args, promptArg],
+    args: [...spawnArgs, promptArg],
     shell: false,
   };
+}
+
+export function prepareOpencodeArgs(args: string[]): string[] {
+  return withOpencodeWorkDir(withOpencodeTitle(normalizeOpencodeModelArgs(args)));
+}
+
+export function normalizeOpencodeModelArgs(args: string[]): string[] {
+  const modelAliases = new Map([
+    ["openrouter/xiaomi/mimo-v2.5:free", "opencode/mimo-v2.5-free"],
+  ]);
+
+  return args.map((arg, index) => {
+    if (index > 0 && args[index - 1] === "--model") {
+      return modelAliases.get(arg) ?? arg;
+    }
+    return arg;
+  });
+}
+
+export function withOpencodeTitle(args: string[]): string[] {
+  if (!args.includes("run") || args.includes("--title")) {
+    return args;
+  }
+
+  return [...args, "--title", "codex-workflow-task"];
+}
+
+export function withOpencodeWorkDir(args: string[]): string[] {
+  const callerDir = process.env.CODEX_WORKFLOW_CALLER_CWD?.trim();
+  if (!callerDir || args.includes("--dir")) {
+    return args;
+  }
+
+  const workDir = isGitWorkTree(callerDir)
+    ? callerDir
+    : ensureOpencodeScratchDir();
+
+  return [...args, "--dir", workDir];
+}
+
+function isGitWorkTree(dir: string): boolean {
+  if (!existsSync(dir)) {
+    return false;
+  }
+
+  const result = spawnSync("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return result.status === 0 && result.stdout.trim() === "true";
+}
+
+function ensureOpencodeScratchDir(): string {
+  const scratchDir = path.join(os.homedir(), ".codex", "codex-workflow", "opencode-scratch");
+  mkdirSync(scratchDir, { recursive: true });
+
+  if (!isGitWorkTree(scratchDir)) {
+    spawnSync("git", ["-C", scratchDir, "init"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+  }
+
+  return scratchDir;
 }
 
 export function normalizeExecutorFailure(
@@ -704,7 +847,7 @@ async function runExecutorOnce(
     child.on("error", (error) => {
       clearTimeout(timer);
       const normalized = normalizeExecutorFailure(executor.command, stdout, `${stderr}\n${error.message}`.trim(), -1);
-      const output = buildWorkerResultOutput(executor, normalized.stdout);
+      const output = buildWorkerResultOutputForStatus(executor, normalized.stdout, normalized.status);
       resolve({
         status: normalized.status,
         stdout: normalized.stdout,
@@ -722,10 +865,12 @@ async function runExecutorOnce(
     child.on("close", (code) => {
       clearTimeout(timer);
       const normalized = normalizeExecutorFailure(executor.command, stdout, stderr, code ?? -1);
-      const output = buildWorkerResultOutput(executor, normalized.stdout);
+      const resultStatus = timedOut ? "failed" : normalized.status;
+      const resultStdout = timedOut ? `[spawn executor timed out after ${timeoutMs}ms]` : normalized.stdout;
+      const output = buildWorkerResultOutputForStatus(executor, resultStdout, resultStatus);
       resolve({
-        status: timedOut ? "failed" : normalized.status,
-        stdout: timedOut ? `[spawn executor timed out after ${timeoutMs}ms]` : normalized.stdout,
+        status: resultStatus,
+        stdout: resultStdout,
         stderr: timedOut ? stderr : normalized.stderr,
         exitCode: timedOut ? (code ?? -1) : normalized.exitCode,
         startedAt,

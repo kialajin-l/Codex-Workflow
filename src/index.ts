@@ -148,7 +148,7 @@ async function probeExecutor(rootDir: string, args: Record<string, string>): Pro
     command: executor.command,
     args: executor.args,
     workerResult: result,
-    review: reviewWorkerResultForMode(result, expectedOutputMode(executor.artifactMode)),
+    review: reviewWorkerResultForMode(result, "schema"),
   };
 
   console.log(JSON.stringify(probe, null, 2));
@@ -361,7 +361,11 @@ async function deepworkEntry(args: Record<string, string>): Promise<void> {
   const routes = plan.autoRoute
     ? await routeGoals(process.cwd(), plan.goals, config, await loadModelProfiles(process.cwd()))
     : undefined;
-  const batch = await runTaskBatch(process.cwd(), plan.goals, plan.executor, config, "parallel", routes, {
+  const batchMode = plan.goals.some((goal) => / - produce a short implementation plan$/i.test(goal))
+    && plan.goals.some((goal) => / - implement the highest-value next step and return a concrete deliverable$/i.test(goal))
+    ? "serial"
+    : "parallel";
+  const batch = await runTaskBatch(process.cwd(), plan.goals, plan.executor, config, batchMode, routes, {
     execMode: plan.execMode,
   });
   console.log(JSON.stringify({

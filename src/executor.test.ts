@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { normalizeExecutorFailure, runExecutor, shouldRetryExecutor } from "./executor.js";
+import { normalizeExecutorFailure, normalizeOpencodeModelArgs, prepareOpencodeArgs, runExecutor, shouldRetryExecutor, withOpencodeTitle, withOpencodeWorkDir } from "./executor.js";
 
 const cleanupDirs = new Set<string>();
 
@@ -132,6 +132,31 @@ describe("executor retry policy", () => {
     assert.match(normalized.stderr, /event stream|tool trace/i);
   });
 
+  it("does not synthesize ok parsed payloads from failed text executors", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-executor-failed-text-"));
+    cleanupDirs.add(rootDir);
+    const scriptPath = path.join(rootDir, "failed-text.cjs");
+    await fs.writeFile(scriptPath, [
+      "process.stdout.write('Unexpected server error. Check server logs for details.');",
+      "process.exit(1);",
+    ].join("\n"), "utf8");
+
+    const result = await runExecutor(
+      {
+        command: process.execPath,
+        args: [scriptPath],
+        artifactMode: "text",
+        timeoutMs: 5000,
+      },
+      "Say exactly hello",
+    );
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.parsed, undefined);
+    assert.equal(result.artifact?.content, "Unexpected server error. Check server logs for details.");
+  });
+
   it("passes multiline prompts to spawn executors as one argument", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-executor-argv-"));
     cleanupDirs.add(rootDir);
@@ -164,5 +189,73 @@ describe("executor retry policy", () => {
 
     assert.equal(result.status, "ok");
     assert.equal(result.parsed?.status, "ok");
+  });
+
+  it("adds a git-safe working directory to opencode args", () => {
+    const oldCallerCwd = process.env.CODEX_WORKFLOW_CALLER_CWD;
+    process.env.CODEX_WORKFLOW_CALLER_CWD = process.cwd();
+    try {
+      const args = withOpencodeWorkDir(["run", "--format", "json"]);
+      assert.deepEqual(args.slice(0, 3), ["run", "--format", "json"]);
+      assert.equal(args[3], "--dir");
+      assert.equal(typeof args[4], "string");
+      assert.ok(args[4]?.length);
+      assert.deepEqual(
+        withOpencodeWorkDir(["run", "--dir", "D:\\explicit", "--format", "json"]),
+        ["run", "--dir", "D:\\explicit", "--format", "json"],
+      );
+    } finally {
+      if (oldCallerCwd === undefined) {
+        delete process.env.CODEX_WORKFLOW_CALLER_CWD;
+      } else {
+        process.env.CODEX_WORKFLOW_CALLER_CWD = oldCallerCwd;
+      }
+    }
+  });
+
+  it("normalizes legacy MIMO model ids for opencode", () => {
+    assert.deepEqual(
+      normalizeOpencodeModelArgs(["run", "--model", "openrouter/xiaomi/mimo-v2.5:free"]),
+      ["run", "--model", "opencode/mimo-v2.5-free"],
+    );
+    assert.deepEqual(
+      normalizeOpencodeModelArgs(["run", "--model", "opencode/mimo-v2.5-free"]),
+      ["run", "--model", "opencode/mimo-v2.5-free"],
+    );
+  });
+
+  it("adds a stable title to opencode run args", () => {
+    assert.deepEqual(
+      withOpencodeTitle(["run", "--pure", "--format", "json"]),
+      ["run", "--pure", "--format", "json", "--title", "codex-workflow-task"],
+    );
+    assert.deepEqual(
+      withOpencodeTitle(["run", "--title", "custom-title", "--pure"]),
+      ["run", "--title", "custom-title", "--pure"],
+    );
+    assert.deepEqual(
+      withOpencodeTitle(["serve", "--port", "4196"]),
+      ["serve", "--port", "4196"],
+    );
+  });
+
+  it("prepares opencode args with model aliases and git-safe workdir", () => {
+    const oldCallerCwd = process.env.CODEX_WORKFLOW_CALLER_CWD;
+    process.env.CODEX_WORKFLOW_CALLER_CWD = process.cwd();
+    try {
+      const args = prepareOpencodeArgs(["run", "--model", "openrouter/xiaomi/mimo-v2.5:free"]);
+      assert.deepEqual(args.slice(0, 3), ["run", "--model", "opencode/mimo-v2.5-free"]);
+      assert.equal(args[3], "--title");
+      assert.equal(args[4], "codex-workflow-task");
+      assert.equal(args[5], "--dir");
+      assert.equal(typeof args[6], "string");
+      assert.ok(args[6]?.length);
+    } finally {
+      if (oldCallerCwd === undefined) {
+        delete process.env.CODEX_WORKFLOW_CALLER_CWD;
+      } else {
+        process.env.CODEX_WORKFLOW_CALLER_CWD = oldCallerCwd;
+      }
+    }
   });
 });
