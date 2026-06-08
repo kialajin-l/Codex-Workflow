@@ -1181,6 +1181,96 @@ describe("regression: verify analysis-only implementer output", () => {
     assert.notEqual(result.verdict, "blocked",
       `Should not block deliverable output: ${result.reason}`);
   });
+
+  it("verifyTaskCompletion blocks implementer output that leaves implementation work in nextStep", () => {
+    const task = {
+      id: "test",
+      goal: "Ship slugify - implement the highest-value next step and return a concrete deliverable",
+      executor: "mock",
+      phase: "review" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer" as const,
+      role: "implementer" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: JSON.stringify({
+          summary: "slugify should be moved into src/utils.",
+          changes: "Create src/utils/slug.js and update slug.js.",
+          risks: "low",
+          status: "ok",
+          deliverable: "src/utils/slug.js contains slugify and root slug.js re-exports it.",
+          assumptions: ["Node.js project"],
+          nextStep: "读取现有 slug.js 确认内容后迁移至 src/utils/slug.js",
+        }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        attempts: 1,
+        parsed: {
+          summary: "slugify should be moved into src/utils.",
+          changes: "Create src/utils/slug.js and update slug.js.",
+          risks: "low",
+          status: "ok",
+          deliverable: "src/utils/slug.js contains slugify and root slug.js re-exports it.",
+          assumptions: ["Node.js project"],
+          nextStep: "读取现有 slug.js 确认内容后迁移至 src/utils/slug.js",
+        },
+      },
+    } as WorkflowTask;
+
+    const result = verifyTaskCompletion(task);
+    assert.equal(result.verdict, "blocked");
+    assert.match(result.reason, /nextStep/i);
+  });
+
+  it("verifyTaskCompletion accepts completed implementer output with a terminal nextStep", () => {
+    const task = {
+      id: "test",
+      goal: "Ship slugify - implement the highest-value next step and return a concrete deliverable",
+      executor: "mock",
+      phase: "review" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      workerPrompt: "test",
+      structuredMode: "deepwork-implementer" as const,
+      role: "implementer" as const,
+      workerResult: {
+        status: "ok" as const,
+        source: "executor",
+        stdout: JSON.stringify({
+          summary: "Implemented slugify and verified tests.",
+          changes: "Created src/utils/slug.js and ran node src/utils/slug.js.",
+          risks: "low",
+          status: "ok",
+          deliverable: "src/utils/slug.js with slugify and passing inline assertions.",
+          assumptions: ["Node.js project"],
+          nextStep: "Task complete. No further action required.",
+        }),
+        stderr: "",
+        exitCode: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        attempts: 1,
+        parsed: {
+          summary: "Implemented slugify and verified tests.",
+          changes: "Created src/utils/slug.js and ran node src/utils/slug.js.",
+          risks: "low",
+          status: "ok",
+          deliverable: "src/utils/slug.js with slugify and passing inline assertions.",
+          assumptions: ["Node.js project"],
+          nextStep: "Task complete. No further action required.",
+        },
+      },
+    } as WorkflowTask;
+
+    const result = verifyTaskCompletion(task);
+    assert.notEqual(result.verdict, "blocked",
+      `Should not block terminal nextStep output: ${result.reason}`);
+  });
 });
 
 describe("regression: blocked status with fallback payload", () => {

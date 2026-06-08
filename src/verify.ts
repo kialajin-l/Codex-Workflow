@@ -1,4 +1,4 @@
-import type { WorkflowTask } from "./types.js";
+import type { WorkerPayload, WorkflowTask } from "./types.js";
 
 export interface VerificationVerdict {
   verdict: "completed" | "blocked" | "unverified";
@@ -30,9 +30,29 @@ export function verifyTaskCompletion(task: WorkflowTask): VerificationVerdict {
     if (isPureAnalysisOutput(output)) {
       return { verdict: "blocked", reason: "Implementer output is pure analysis; no concrete deliverable." };
     }
+    if (hasPendingImplementationNextStep(parsed)) {
+      return { verdict: "blocked", reason: "Implementer marked status ok but left the core implementation action as nextStep." };
+    }
   }
 
   return { verdict: "unverified", reason: "Verification has no additional signal; deferred to review." };
+}
+
+function hasPendingImplementationNextStep(parsed: WorkerPayload | undefined): boolean {
+  if (!parsed || parsed.status !== "ok" || !("nextStep" in parsed) || typeof parsed.nextStep !== "string") {
+    return false;
+  }
+
+  const nextStep = parsed.nextStep.trim();
+  if (!nextStep) {
+    return false;
+  }
+
+  if (/(task complete|no further action|nothing else|无需|不需要|已完成|任务完成|无后续)/i.test(nextStep)) {
+    return false;
+  }
+
+  return /\b(read|inspect|create|add|write|edit|update|move|migrate|implement|run|verify)\b|读取|检查|创建|新增|写入|编辑|更新|移动|迁移|实现|运行|验证/.test(nextStep);
 }
 
 /**

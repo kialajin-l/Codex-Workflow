@@ -12,6 +12,7 @@ dist/
 Thumbs.db
 *.log
 opencode.json
+.omo/
 
 # Temporary workflow snapshots
 temp-before.json

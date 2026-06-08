@@ -317,7 +317,12 @@ async function demoPair(rootDir: string, mode: "serial" | "parallel"): Promise<v
   console.log(JSON.stringify(batch, null, 2));
 }
 
-async function deepworkEntry(args: Record<string, string>): Promise<void> {
+function resolveRootDir(): string {
+  const callerDir = process.env.CODEX_WORKFLOW_CALLER_CWD?.trim();
+  return callerDir ? path.resolve(callerDir) : process.cwd();
+}
+
+async function deepworkEntry(rootDir: string, args: Record<string, string>): Promise<void> {
   const input = {
     executionMode: args["execution-mode"],
     goalStyle: args["goal-style"],
@@ -332,7 +337,7 @@ async function deepworkEntry(args: Record<string, string>): Promise<void> {
     return;
   }
 
-  const config = await loadConfig(process.cwd());
+  const config = await loadConfig(rootDir);
   const selection = resolveDeepworkSelection(response.preferences.persisted ? {
     executionMode: response.preferences.executionMode,
     goalStyle: response.preferences.goalStyle,
@@ -345,10 +350,10 @@ async function deepworkEntry(args: Record<string, string>): Promise<void> {
   });
 
   if (plan.mode === "single") {
-    const task = await createTask(process.cwd(), plan.goals[0], plan.executor, config, undefined, {
+    const task = await createTask(rootDir, plan.goals[0], plan.executor, config, undefined, {
       execMode: plan.execMode,
     });
-    const completed = await runTask(process.cwd(), task, config);
+    const completed = await runTask(rootDir, task, config);
     console.log(JSON.stringify({
       entry: "/deepwork",
       preferences: response.preferences,
@@ -359,13 +364,13 @@ async function deepworkEntry(args: Record<string, string>): Promise<void> {
   }
 
   const routes = plan.autoRoute
-    ? await routeGoals(process.cwd(), plan.goals, config, await loadModelProfiles(process.cwd()))
+    ? await routeGoals(rootDir, plan.goals, config, await loadModelProfiles(rootDir))
     : undefined;
   const batchMode = plan.goals.some((goal) => / - produce a short implementation plan$/i.test(goal))
     && plan.goals.some((goal) => / - implement the highest-value next step and return a concrete deliverable$/i.test(goal))
     ? "serial"
     : "parallel";
-  const batch = await runTaskBatch(process.cwd(), plan.goals, plan.executor, config, batchMode, routes, {
+  const batch = await runTaskBatch(rootDir, plan.goals, plan.executor, config, batchMode, routes, {
     execMode: plan.execMode,
   });
   console.log(JSON.stringify({
@@ -465,7 +470,7 @@ async function completeDelegatedBatch(rootDir: string, args: Record<string, stri
 }
 
 async function main(): Promise<void> {
-  const rootDir = process.cwd();
+  const rootDir = resolveRootDir();
   const [command, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
 
@@ -517,7 +522,7 @@ async function main(): Promise<void> {
       await demoPair(rootDir, "parallel");
       return;
     case "deepwork":
-      await deepworkEntry(args);
+      await deepworkEntry(rootDir, args);
       return;
     default:
       console.log("Usage:");

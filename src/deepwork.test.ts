@@ -158,4 +158,62 @@ describe("deepwork preferences", () => {
     assert.equal(response.preferences.executionMode, "codex-first");
     assert.equal(response.preferences.temporaryOverride, true);
   });
+
+  it("writes workflow state to CODEX_WORKFLOW_CALLER_CWD when launched from a runtime directory", async () => {
+    const cliPath = fileURLToPath(new URL("./index.js", import.meta.url));
+    const runtimeDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-runtime-"));
+    const targetDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-target-"));
+    const homeDir = path.join(os.tmpdir(), "codex-workflow-tests", `deepwork-caller-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    try {
+      await fs.writeFile(path.join(targetDir, "workflow.config.json"), JSON.stringify({
+        defaultExecutor: "mock",
+        executors: {
+          mock: {
+            command: process.execPath,
+            args: [
+              "-e",
+              "process.stdout.write(JSON.stringify({summary:'ok',changes:'verified target cwd',risks:'none',status:'ok'}))",
+            ],
+            artifactMode: "schema",
+            timeoutMs: 5000,
+          },
+        },
+      }, null, 2), "utf8");
+
+      const { stdout } = await execFileAsync(process.execPath, [
+        cliPath,
+        "deepwork",
+        "--temporary",
+        "--execution-mode",
+        "cli-first",
+        "--goal-style",
+        "explicit-goals",
+        "--executor",
+        "mock",
+        "--goal",
+        "Verify caller cwd state location",
+      ], {
+        cwd: runtimeDir,
+        env: {
+          ...process.env,
+          CODEX_WORKFLOW_CALLER_CWD: targetDir,
+          CODEX_WORKFLOW_HOME: homeDir,
+        },
+      });
+
+      const response = JSON.parse(stdout);
+      assert.equal(response.result.phase, "completed");
+
+      const targetStateFiles = await fs.readdir(path.join(targetDir, ".workflow-state"));
+      assert.ok(
+        targetStateFiles.some((file) => file.endsWith(".json") && !file.startsWith("probe.")),
+        `expected workflow state in target dir, got ${targetStateFiles.join(", ")}`,
+      );
+      await assert.rejects(fs.access(path.join(runtimeDir, ".workflow-state")));
+    } finally {
+      await fs.rm(runtimeDir, { recursive: true, force: true });
+      await fs.rm(targetDir, { recursive: true, force: true });
+    }
+  });
 });
