@@ -1,6 +1,6 @@
 {
   "name": "codex-workflow",
-  "version": "0.1.0+codex.20260609000000",
+  "version": "0.1.0+codex.20260609010000",
   "description": "Hook-driven workflow orchestration plugin for Codex with CLI workers, resume support, cost tracking, and structured logs.",
   "author": {
     "name": "kialajin-l",

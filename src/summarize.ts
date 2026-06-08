@@ -82,7 +82,7 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
   if (summary.delegated > 0) {
     summary.nextSteps.push(`${summary.delegated} task(s) delegated to Codex - complete them first`);
   }
-  // Only suggest deployment when every task is cleanly completed with high consensus
+  // Only report readiness for the next workflow step when every task is cleanly completed.
   if (
     summary.blocked === 0 &&
     summary.hostApplyPending === 0 &&
@@ -90,7 +90,7 @@ export function summarizeBatch(tasks: WorkflowTask[]): BatchSummary {
     summary.consensus === "high" &&
     summary.completed === summary.totalTasks
   ) {
-    summary.nextSteps.push("All tasks completed - proceed to integration or deployment");
+    summary.nextSteps.push("All tasks completed - ready for the next workflow step");
   }
 
   return summary;

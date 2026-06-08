@@ -134,7 +134,7 @@ describe("batch summary", () => {
     assert.equal(deploymentStep, undefined, "Should not suggest deployment when blocked tasks exist");
   });
 
-  it("requires high consensus for deployment suggestion", () => {
+  it("requires high consensus for a completed next-step suggestion", () => {
     const summary = summarizeBatch([
       createTask({
         id: "completed-no-parsed",
@@ -153,9 +153,29 @@ describe("batch summary", () => {
 
     // Completed without parsed → consensus cannot be high
     assert.equal(summary.consensus, "none");
-    // Must NOT suggest deployment
-    const deploymentStep = summary.nextSteps.find(s => /deployment/i.test(s));
-    assert.equal(deploymentStep, undefined, "Should not suggest deployment without high consensus");
+    assert.equal(summary.nextSteps.length, 0, "Should not suggest a next workflow step without high consensus");
+  });
+
+  it("uses a neutral completed next-step suggestion for high consensus", () => {
+    const summary = summarizeBatch([
+      createTask({
+        id: "completed-ok",
+        phase: "completed",
+        workerResult: {
+          status: "ok",
+          source: "executor",
+          stdout: JSON.stringify({ summary: "done", changes: "yes", risks: "none", status: "ok" }),
+          stderr: "",
+          exitCode: 0,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          parsed: { summary: "done", changes: "yes", risks: "none", status: "ok" },
+        },
+      }),
+    ]);
+
+    assert.equal(summary.consensus, "high");
+    assert.deepEqual(summary.nextSteps, ["All tasks completed - ready for the next workflow step"]);
   });
 
   it("does not report high consensus while delegated tasks remain", () => {
