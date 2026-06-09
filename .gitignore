@@ -7,6 +7,14 @@ dist/
 # Runtime state
 .workflow-state/
 
+# Local/internal documentation that should not be published
+docs/superpowers/
+docs/videos/
+docs/20*-deepwork-*.md
+docs/Phase *.md
+docs/chatgpt*.md
+docs/deepseek*.md
+
 # Local env / caches
 .DS_Store
 Thumbs.db
