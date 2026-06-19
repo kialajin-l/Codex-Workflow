@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$repoZipUrl = "https://github.com/kialajin-l/Codex-Workflow/archive/refs/heads/main.zip"
+$repoZipUrl = "https://codeload.github.com/kialajin-l/Codex-Workflow/zip/refs/heads/main"
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-workflow-install-" + [guid]::NewGuid().ToString("N"))
 $archivePath = Join-Path $tempRoot "codex-workflow.zip"
 

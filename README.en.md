@@ -151,6 +151,21 @@ PowerShell:
 irm https://raw.githubusercontent.com/kialajin-l/Codex-Workflow/main/install.ps1 | iex
 ```
 
+If your Windows environment cannot reach `raw.githubusercontent.com`, use the zip fallback that avoids the raw domain:
+
+```powershell
+$tmp = Join-Path $env:TEMP "codex-workflow-main.zip"
+$dir = Join-Path $env:TEMP ("codex-workflow-install-" + [guid]::NewGuid().ToString("N"))
+Invoke-WebRequest https://codeload.github.com/kialajin-l/Codex-Workflow/zip/refs/heads/main -OutFile $tmp
+Expand-Archive $tmp -DestinationPath $dir -Force
+Push-Location (Get-ChildItem $dir -Directory | Select-Object -First 1).FullName
+npm install
+npm run build
+npm prune --omit=dev
+node install.js
+Pop-Location
+```
+
 Bash:
 
 ```bash
