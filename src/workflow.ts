@@ -14,6 +14,7 @@ import {
 import { logBatchEnd, logBatchStart, logTaskComplete } from "./logger.js";
 import type { DeepworkReviewMode, RouteDecision, WorkflowBatchResult, WorkflowConfig, WorkflowTask } from "./types.js";
 import { runExecutor } from "./executor.js";
+import { fenceGate } from "./fence-gate.js";
 import { expectedOutputMode, extractJsonObject, parseStructuredWorkerPayload, reviewWorkerResultForMode } from "./review.js";
 import { saveBatch, saveTask } from "./store.js";
 import { summarizeBatch } from "./summarize.js";
@@ -684,6 +685,36 @@ export async function runTask(
   task: WorkflowTask,
   config: WorkflowConfig,
 ): Promise<WorkflowTask> {
+  const gateResult = await fenceGate(task);
+  if (gateResult && !gateResult.allowed) {
+    const now = new Date().toISOString();
+    const decision = gateResult.decision;
+    const reason = `[fence-gate] ${decision.action} (${decision.rule_id}): ${decision.reason}`;
+    const blockedTask: WorkflowTask = {
+      ...task,
+      phase: "blocked",
+      updatedAt: now,
+      workerResult: {
+        status: "failed",
+        stdout: "",
+        stderr: reason,
+        exitCode: 1,
+        startedAt: now,
+        finishedAt: now,
+        attempts: 0,
+        failureCategory: "unknown",
+      },
+      review: {
+        decision: "reject",
+        summary: reason,
+        issues: [reason],
+        reviewedAt: now,
+      },
+    };
+    await saveTask(rootDir, blockedTask);
+    return blockedTask;
+  }
+
   if (task.execMode === "codex") {
     return delegateTaskToCodex(rootDir, task);
   }
@@ -801,13 +832,7 @@ function createDispatchedTaskRunner(
   afterResultHook: LoadedWorkflowHooks["afterResultHook"],
 ): (task: WorkflowTask) => Promise<WorkflowTask> {
   return async (task: WorkflowTask): Promise<WorkflowTask> => {
-    if (task.execMode === "codex") {
-      const delegatedTask = await delegateTaskToCodex(rootDir, task);
-      await logTaskComplete(rootDir, batchId, delegatedTask.id, delegatedTask.phase).catch(() => {});
-      return delegatedTask;
-    }
-
-    const completedTask = await runTaskWithFallbacks(rootDir, task, config);
+    const completedTask = await runTask(rootDir, task, config);
 
     if (afterResultHook && completedTask.phase === "completed") {
       const afterResult = applyTaskAfterResultHook(afterResultHook, completedTask);

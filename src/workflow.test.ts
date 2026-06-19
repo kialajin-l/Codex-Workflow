@@ -1,4 +1,4 @@
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -10,8 +10,24 @@ import { loadBatch } from "./store.js";
 import { buildRetryPrompt, buildWorkerPrompt, createTask, inferDeepworkRole, resolveTaskPhase, runTask, runTaskBatch, runTaskWithFallbacks, synthesizeStructuredFallback } from "./workflow.js";
 
 const cleanupDirs = new Set<string>();
+const savedFenceEnabled = process.env.RULEFORGE_FENCE_ENABLED;
+const savedFenceBin = process.env.RULEFORGE_FENCE_BIN;
+
+beforeEach(() => {
+  process.env.RULEFORGE_FENCE_ENABLED = "false";
+});
 
 afterEach(async () => {
+  if (savedFenceEnabled === undefined) {
+    delete process.env.RULEFORGE_FENCE_ENABLED;
+  } else {
+    process.env.RULEFORGE_FENCE_ENABLED = savedFenceEnabled;
+  }
+  if (savedFenceBin === undefined) {
+    delete process.env.RULEFORGE_FENCE_BIN;
+  } else {
+    process.env.RULEFORGE_FENCE_BIN = savedFenceBin;
+  }
   await Promise.all(
     [...cleanupDirs].map(async (dir) => {
       await fs.rm(dir, { recursive: true, force: true });
@@ -1931,5 +1947,315 @@ describe("delegated payload uses task.role", () => {
     const payload = JSON.parse(delegatedTask.workerResult!.stdout) as Record<string, unknown>;
     assert.equal(payload.role, "implementer",
       "delegated payload role must be implementer");
+  });
+});
+
+describe("ruleforge fence gate", () => {
+  async function createMockFenceBin(rootDir: string, script: string): Promise<string> {
+    const binPath = path.join(rootDir, "mock-fence.js");
+    await fs.writeFile(binPath, script, "utf8");
+    return `node ${binPath.replace(/\\/g, "/")}`;
+  }
+
+  it("blocks task with denied path before executor runs", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-deny-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "const ctxPath = process.argv[process.argv.indexOf('--context') + 1];",
+      "const ctx = JSON.parse(require('fs').readFileSync(ctxPath, 'utf8'));",
+      "const isDenied = ctx.file_paths?.some(p => p.startsWith('dist/'));",
+      "const decision = isDenied",
+      "  ? { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'blocking', action:'deny', rule_id:'denied_paths_block', scale_tier:'single', reason:'denied path' }",
+      "  : { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'info', action:'allow', rule_id:'all_passed', scale_tier:'single', reason:'ok' };",
+      "process.stdout.write(JSON.stringify(decision));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('should not run')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Modify dist/bundle.js to fix a build error", "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "blocked", "task must be blocked by fence gate");
+    assert.equal(completed.workerResult?.status, "failed", "workerResult.status must be failed");
+    assert.ok(
+      completed.workerResult?.stderr.includes("[fence-gate]"),
+      "stderr must contain fence-gate marker",
+    );
+    assert.ok(
+      completed.workerResult?.stderr.includes("denied_paths_block"),
+      "stderr must mention denied_paths_block",
+    );
+    assert.equal(completed.review?.decision, "reject", "review must reject");
+  });
+
+  it("blocks task with require_split before executor runs", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-split-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "const ctxPath = process.argv[process.argv.indexOf('--context') + 1];",
+      "const ctx = JSON.parse(require('fs').readFileSync(ctxPath, 'utf8'));",
+      "const isOversized = ctx.file_count >= 20;",
+      "const decision = isOversized",
+      "  ? { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'blocking', action:'require_split', rule_id:'scale_limit_split', scale_tier:'oversized', reason:'too many files' }",
+      "  : { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'info', action:'allow', rule_id:'all_passed', scale_tier:'single', reason:'ok' };",
+      "process.stdout.write(JSON.stringify(decision));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('should not run')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const goals = [
+      "Modify src/file01.ts, src/file02.ts, src/file03.ts, src/file04.ts, src/file05.ts, src/file06.ts, src/file07.ts, src/file08.ts, src/file09.ts, src/file10.ts, src/file11.ts, src/file12.ts, src/file13.ts, src/file14.ts, src/file15.ts, src/file16.ts, src/file17.ts, src/file18.ts, src/file19.ts, src/file20.ts, src/file21.ts, src/file22.ts, src/file23.ts, src/file24.ts, src/file25.ts",
+    ];
+
+    const task = await createTask(rootDir, goals[0], "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "blocked", "task must be blocked by fence gate");
+    assert.equal(completed.workerResult?.status, "failed", "workerResult.status must be failed");
+    assert.ok(
+      completed.workerResult?.stderr.includes("[fence-gate]"),
+      "stderr must contain fence-gate marker",
+    );
+    assert.ok(
+      completed.workerResult?.stderr.includes("require_split"),
+      "stderr must mention require_split",
+    );
+  });
+
+  it("allows task with safe path to proceed to executor", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-allow-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "process.stdout.write(JSON.stringify({ format:'synaptor-v1', type:'fence_decision', task_id:'x', severity:'info', action:'allow', rule_id:'all_passed', scale_tier:'single', reason:'ok' }));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const mockScriptPath = path.join(rootDir, "passing-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stdout.write('1. Deliverable\\nA utility function for slug generation.\\n\\n2. Assumptions\\nThe function will be placed in src/utils/slug.ts.\\n\\n3. Next step\\nDone.');",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Add a tiny utility function in src/utils/slug.ts", "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "completed", "task must complete (fence allows)");
+    assert.equal(completed.workerResult?.status, "ok", "workerResult.status must be ok");
+  });
+
+  it("blocks codex-delegated task with denied path before delegation", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-codex-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "const ctxPath = process.argv[process.argv.indexOf('--context') + 1];",
+      "const ctx = JSON.parse(require('fs').readFileSync(ctxPath, 'utf8'));",
+      "const isDenied = ctx.file_paths?.some(p => p.startsWith('dist/'));",
+      "const decision = isDenied",
+      "  ? { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'blocking', action:'deny', rule_id:'denied_paths_block', scale_tier:'single', reason:'denied path' }",
+      "  : { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'info', action:'allow', rule_id:'all_passed', scale_tier:'single', reason:'ok' };",
+      "process.stdout.write(JSON.stringify(decision));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('should not run')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Modify dist/bundle.js", "mock", config);
+    task.execMode = "codex";
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "blocked", "codex task must be blocked by fence gate");
+    assert.equal(completed.workerResult?.status, "failed");
+    assert.ok(completed.workerResult?.stderr.includes("denied_paths_block"));
+  });
+
+  it("runTaskBatch goes through fence gate", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-batch-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "const ctxPath = process.argv[process.argv.indexOf('--context') + 1];",
+      "const ctx = JSON.parse(require('fs').readFileSync(ctxPath, 'utf8'));",
+      "const isDenied = ctx.file_paths?.some(p => p.startsWith('dist/'));",
+      "const decision = isDenied",
+      "  ? { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'blocking', action:'deny', rule_id:'denied_paths_block', scale_tier:'single', reason:'denied path' }",
+      "  : { format:'synaptor-v1', type:'fence_decision', task_id:ctx.task_id, severity:'info', action:'allow', rule_id:'all_passed', scale_tier:'single', reason:'ok' };",
+      "process.stdout.write(JSON.stringify(decision));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('ok')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const batch = await runTaskBatch(
+      rootDir,
+      ["Modify dist/bundle.js to fix a build error"],
+      "mock",
+      config,
+      "serial",
+    );
+
+    const task = batch.tasks[0];
+    assert.equal(task.phase, "blocked", "batch task must be blocked by fence gate");
+    assert.ok(task.workerResult?.stderr.includes("denied_paths_block"));
+  });
+
+  it("skips fence when RULEFORGE_FENCE_ENABLED and RULEFORGE_FENCE_BIN are unset", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-auto-"));
+    cleanupDirs.add(rootDir);
+
+    delete process.env.RULEFORGE_FENCE_ENABLED;
+    delete process.env.RULEFORGE_FENCE_BIN;
+
+    const mockScriptPath = path.join(rootDir, "passing-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stdout.write('1. Deliverable\\nDone.\\n\\n2. Assumptions\\nNone.\\n\\n3. Next step\\nNone.');",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Modify dist/bundle.js", "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "completed", "task must complete when fence auto-skips");
+    assert.equal(completed.workerResult?.status, "ok");
+    assert.ok(!completed.workerResult?.stderr.includes("[fence-gate]"), "stderr must not contain fence-gate marker");
+  });
+
+  it("fail-closed when RULEFORGE_FENCE_ENABLED=true but no bin", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-forced-"));
+    cleanupDirs.add(rootDir);
+
+    process.env.RULEFORGE_FENCE_ENABLED = "true";
+    delete process.env.RULEFORGE_FENCE_BIN;
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: ["-e", "process.stdout.write('should not run')"],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Add src/utils/slug.ts", "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "blocked", "task must be blocked when forced but no bin");
+    assert.equal(completed.workerResult?.status, "failed");
+    assert.ok(completed.workerResult?.stderr.includes("fence_unavailable"));
+  });
+
+  it("skips fence when RULEFORGE_FENCE_ENABLED=false even with deny mock", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-workflow-fence-disabled-"));
+    cleanupDirs.add(rootDir);
+
+    const mockFenceBin = await createMockFenceBin(rootDir, [
+      "process.stdout.write(JSON.stringify({ format:'synaptor-v1', type:'fence_decision', task_id:'x', severity:'blocking', action:'deny', rule_id:'denied_paths_block', scale_tier:'single', reason:'denied' }));",
+    ].join("\n"));
+
+    process.env.RULEFORGE_FENCE_ENABLED = "false";
+    process.env.RULEFORGE_FENCE_BIN = mockFenceBin;
+
+    const mockScriptPath = path.join(rootDir, "passing-executor.js");
+    await fs.writeFile(mockScriptPath, [
+      "process.stdout.write('1. Deliverable\\nDone.\\n\\n2. Assumptions\\nNone.\\n\\n3. Next step\\nNone.');",
+    ].join("\n"), "utf8");
+
+    const config: WorkflowConfig = {
+      defaultExecutor: "mock",
+      executors: {
+        mock: {
+          command: "node",
+          args: [mockScriptPath],
+          artifactMode: "text" as const,
+          timeoutMs: 5000,
+        },
+      },
+    };
+
+    const task = await createTask(rootDir, "Modify dist/bundle.js", "mock", config);
+    const completed = await runTask(rootDir, task, config);
+
+    assert.equal(completed.phase, "completed", "task must complete when fence disabled");
+    assert.equal(completed.workerResult?.status, "ok");
   });
 });

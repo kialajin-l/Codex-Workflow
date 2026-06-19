@@ -94,6 +94,9 @@ export interface WorkflowTask {
   workerResult?: WorkerResult;
   review?: ReviewResult;
   structuredMode?: "deepwork-planner" | "deepwork-implementer";
+  filePaths?: string[];
+  allowedPaths?: string[];
+  deniedPaths?: string[];
 }
 
 export interface WorkerResult {
